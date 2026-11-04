@@ -84,6 +84,19 @@
 # Read in upstream's commits and Codex's documentation, not observed in a Codex
 # CLI session.
 #
+# W2643 -- upstream D377 (fb603fe), which W2642 had already put in place,
+# checked against fb603fe and fd58c62 and pinned further. Two row kinds are
+# new: once and readme_once need their needle exactly once, so a word the agent
+# or the README names only to refuse it (`--ext-diff`, `--textconv`,
+# `--show-signature`, `ls-files -m`, `diff-index`, and in the agent `%G`)
+# cannot come back in a new sentence or a fully flagged form, which every
+# absent row let through. break_replace_rows takes the file to edit as an
+# optional second argument, so a named table can break the README. Named
+# tables drop each flag from the agent's list, add each refused flag back,
+# restore the removed forms flagged and unflagged, and loosen the probe's copy
+# step and guard; a README table does the same to its five forms. The text is
+# run against a real git by lib/check_git_hardening.sh, not here.
+#
 # Bash only (no PowerShell mirror; lib/test-all.ps1 says so). Offline, bash 3.2
 # compatible. Reads the plugin's files; the self-tests write only to a temporary
 # directory, removed on every exit. No command is built from file contents:
@@ -233,6 +246,10 @@ check_pin_rows() { # $1=table of <kind> TAB <label> TAB <needle> rows
   # awk cannot read fails every row that names it, so an error never reads as
   # a pass, and a row with an unknown kind fails too. The table comes in
   # through the environment, so awk applies no escape processing to it.
+  # Kinds: agent and readme rows need their needle present, absent and
+  # readme_absent rows need it gone, and once and readme_once rows (W2643) need
+  # it exactly once -- so a word the file names only to refuse it cannot come
+  # back anywhere else, in a new sentence or a new form.
   PIN_TABLE="$1" PIN_AGENT="$AGENT" PIN_README="$README" PIN_CMD="$CMD" PIN_ESS="$ESS" awk '
     function slurp(f,   line, txt, rc) {
       txt = ""
@@ -244,6 +261,7 @@ check_pin_rows() { # $1=table of <kind> TAB <label> TAB <needle> rows
     BEGIN {
       path["agent"] = ENVIRON["PIN_AGENT"]; path["absent"] = path["agent"]
       path["readme"] = ENVIRON["PIN_README"]; path["readme_absent"] = path["readme"]
+      path["once"] = path["agent"]; path["readme_once"] = path["readme"]
       path["command"] = ENVIRON["PIN_CMD"]
       path["essentials"] = ENVIRON["PIN_ESS"]
       for (k in path) if (!(path[k] in body)) body[path[k]] = slurp(path[k])
@@ -260,6 +278,13 @@ check_pin_rows() { # $1=table of <kind> TAB <label> TAB <needle> rows
         if (!(kind in path)) { print "FAIL: " label " -- unknown row kind: " kind; bad = 1; continue }
         f = path[kind]
         if (f in unread) { print "FAIL: " label " -- awk could not read " f; bad = 1; continue }
+        if (kind ~ /once$/) {
+          c = 0; s = body[f]; L = length(needle)
+          if (L) while ((j = index(s, needle)) > 0) { c++; s = substr(s, j + L) }
+          if (c == 1) print "ok: " label
+          else { print "FAIL: " label " -- found " c " times, wanted once: " substr(needle, 1, 80); bad = 1 }
+          continue
+        }
         hit = index(body[f], needle) > 0
         isabs = kind ~ /absent$/
         if (isabs ? !hit : hit) print "ok: " label
@@ -649,6 +674,40 @@ D377_PINS_END
 
 check_pin_rows "$D377_PINS"
 
+# --- W2643 (upstream D377): every form and refusal, pinned once ---------------
+# W2642 put D377's text in place; W2643 checked it against upstream fb603fe and
+# fd58c62 and closes what the rows above let through. An absent row matches
+# only the exact un-neutralised form, so a fully flagged `ls-files -m` or
+# `diff-index -p <commit>` form, or a new sentence allowing `--ext-diff`,
+# `--textconv` or `--show-signature`, passed every row; the README's
+# `git diff-index -p` row also missed `git diff-index -p <commit>`, whose
+# backtick does not follow `-p`. The once rows close that: each word the agent
+# and the README name only to refuse it must appear exactly once, and the pinned
+# refusal sentences say where. The live check is lib/check_git_hardening.sh.
+
+IFS= read -r -d '' W2643_PINS <<'W2643_PINS_END' || true
+once	the agent names --ext-diff only to refuse it	--ext-diff
+once	the agent names --textconv only to refuse it	--textconv
+once	the agent names --show-signature only to refuse it	--show-signature
+once	the agent names a %G placeholder only to refuse it	%G
+once	the agent names ls-files -m only to refuse it	ls-files -m
+once	the agent names diff-index only to refuse it	diff-index
+absent	the agent lists no diff-index -p form, flagged or not	diff-index -p
+agent	the prose names the partial clone's lazy fetch	and no lazy fetch from a partial clone's promisor remote, outside the box and with your full environment
+readme_once	the README names --ext-diff only to refuse it	--ext-diff
+readme_once	the README names --textconv only to refuse it	--textconv
+readme_once	the README names --show-signature only to refuse it	--show-signature
+readme_once	the README names ls-files -m only to refuse it	ls-files -m
+readme_once	the README names diff-index only to refuse it	diff-index
+readme_absent	the README lists no diff-index -p form, flagged or not	diff-index -p
+readme	the README says the agent adds no flag back	The agent never drops a flag, adds `--ext-diff`, `--textconv` or `--show-signature`, or puts a `%G` signature placeholder
+readme	the README says ls-files -m and diff-index run the clean filter	`git ls-files -m` and `git diff-index` without `--cached` run a configured clean filter
+readme	the README names the sparse partial clone case	in a sparse partial clone `--exclude-standard` would otherwise lazy-fetch a skip-worktree `.gitignore`
+readme	the README names the git hardening check	`lib/check_git_hardening.sh` runs the five git forms, the probe's guard line and its copy step
+W2643_PINS_END
+
+check_pin_rows "$W2643_PINS"
+
 # --- W2642 beyond upstream: the copy's cleanup and the Linux box's /var -------
 # W2642's security review found the cleanup and the Linux socket denial partial
 # (upstream HEAD has the same gaps; they are owed upstream). The EXIT trap kills
@@ -931,7 +990,7 @@ if [ -z "${CHECK_AGENT_CONTRACT_CHILD:-}" ] && [ "$#" -eq 0 ]; then
 
   pin_rel() { # $1=kind -> the tree-relative file that kind's needle lives in
     case "$1" in
-      readme|readme_absent) printf '%s' README.md ;;
+      readme|readme_absent|readme_once) printf '%s' README.md ;;
       command) printf '%s' "$C" ;;
       essentials) printf '%s' "$E" ;;
       *) printf '%s' "$A" ;;
@@ -947,6 +1006,13 @@ if [ -z "${CHECK_AGENT_CONTRACT_CHILD:-}" ] && [ "$#" -eq 0 ]; then
           rel="$(pin_rel "$kind")"
           printf 'Planted: %s\n' "$needle" >> "$t/$rel"
           expect "planting \"$(printf '%s' "$needle" | cut -c 1-40)\" fails" 1 "FAIL: $label --" "$t" ;;
+        once|readme_once)
+          # Twice: the one mention gone (count 0), then a second planted (count 2).
+          rel="$(pin_rel "$kind")"
+          grep -vF -- "$needle" "$TMP/base/$rel" > "$t/$rel"
+          expect "deleting the line behind \"$label\" fails" 1 "FAIL: $label --" "$t"
+          mk; printf 'Planted: %s\n' "$needle" >> "$t/$rel"
+          expect "planting a second \"$(printf '%s' "$needle" | cut -c 1-40)\" fails" 1 "FAIL: $label --" "$t" ;;
         *)
           rel="$(pin_rel "$kind")"
           grep -vF -- "$needle" "$TMP/base/$rel" > "$t/$rel"
@@ -954,14 +1020,15 @@ if [ -z "${CHECK_AGENT_CONTRACT_CHILD:-}" ] && [ "$#" -eq 0 ]; then
       esac
     done <<< "$1"
   }
-  # break_replace_rows <table> -- rows of <case> TAB <label> TAB <from> TAB <to>,
-  # each a fixed-string replace in the agent of a fresh copy
+  # break_replace_rows <table> [file] -- rows of <case> TAB <label> TAB <from>
+  # TAB <to>, each a fixed-string replace in a fresh copy of the agent, or of
+  # the tree-relative file named second (W2643: the README)
   break_replace_rows() {
-    local cname label from to
+    local cname label from to rel="${2:-$A}"
     while IFS="$TAB" read -r cname label from to; do
       [ -n "$cname" ] || continue
       [ "$to" = "<nothing>" ] && to=""
-      mk; ed_replace "$t/$A" "$from" "$to"
+      mk; ed_replace "$t/$rel" "$from" "$to"
       expect "$cname" 1 "FAIL: $label --" "$t"
     done <<< "$1"
   }
@@ -1067,6 +1134,56 @@ W2275_BREAKS_END
   expect "the shipped tree passes every D377 pin" 0 "ok: the README lists no worktree diff-index form" "$TMP/base"
   break_pin_rows "$D377_PINS"
   break_needle_rows "$D377_PINS"
+  expect "the shipped tree passes every W2643 pin" 0 "ok: the README names the git hardening check" "$TMP/base"
+  break_pin_rows "$W2643_PINS"
+  break_needle_rows "$W2643_PINS"
+
+  # W2643, by named shape: every flag dropped from the agent's list one at a
+  # time, each refused flag added back to a form or in a new sentence, the
+  # removed forms back flagged and unflagged, and the probe's copy step and
+  # guard loosened. The README table runs the same breaks against its five
+  # forms and its refusal sentence.
+  IFS= read -r -d '' W2643_BREAKS <<'W2643_BREAKS_END' || true
+dropping --no-pager from the list fails	every git form disables the pager, lazy fetch, core.fsmonitor and gpg	`git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false	`git --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false
+dropping --no-lazy-fetch from the list fails	every git form disables the pager, lazy fetch, core.fsmonitor and gpg	`git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false	`git --no-pager -c core.fsmonitor=false -c gpg.program=false
+dropping the core.fsmonitor override from the list fails	every git form disables the pager, lazy fetch, core.fsmonitor and gpg	--no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false	--no-lazy-fetch -c gpg.program=false
+dropping the gpg.program override from the list fails	every git form disables the pager, lazy fetch, core.fsmonitor and gpg	-c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false	-c core.fsmonitor=false -c gpg.ssh.program=false
+dropping the gpg.x509.program override from the list fails	every git form disables the pager, lazy fetch, core.fsmonitor and gpg	-c gpg.ssh.program=false -c gpg.x509.program=false` with	-c gpg.ssh.program=false` with
+dropping --no-ext-diff from the list fails	diff, log and show pass --no-ext-diff --no-textconv --submodule=short	with `--no-ext-diff --no-textconv --submodule=short`	with `--no-textconv --submodule=short`
+dropping --submodule=short from the list fails	diff, log and show pass --no-ext-diff --no-textconv --submodule=short	with `--no-ext-diff --no-textconv --submodule=short`	with `--no-ext-diff --no-textconv`
+dropping --no-show-signature from the list fails	log and show pass --no-show-signature	also with `--no-show-signature`,	also with no other flag,
+adding --ext-diff to the list fails	the agent names --ext-diff only to refuse it	--no-textconv --submodule=short`	--no-textconv --submodule=short --ext-diff`
+adding --textconv to the list fails	the agent names --textconv only to refuse it	also with `--no-show-signature`,	also with `--no-show-signature --textconv`,
+adding --show-signature to the list fails	the agent names --show-signature only to refuse it	also with `--no-show-signature`,	also with `--no-show-signature`, then `--show-signature`,
+a new sentence allowing --ext-diff fails	the agent names --ext-diff only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Pass `--ext-diff` when a driver helps. A git that rejects `--no-lazy-fetch` (before 2.44)
+a new sentence allowing --textconv fails	the agent names --textconv only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Pass `--textconv` for binary files. A git that rejects `--no-lazy-fetch` (before 2.44)
+a new sentence allowing a %G placeholder fails	the agent names a %G placeholder only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Check signatures with `--format=%G?`. A git that rejects `--no-lazy-fetch` (before 2.44)
+a refusal that lets --ext-diff back fails	the flags are never dropped or undone	add `--ext-diff`, `--textconv` or `--show-signature`,	add `--textconv` or `--show-signature`,
+ls-files -m back in the list fails	the agent names ls-files -m only to refuse it	with `ls-files`, `diff --cached`	with `ls-files`, `ls-files -m`, `diff --cached`
+a fully flagged ls-files -m form fails	the agent names ls-files -m only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -m`. A git that rejects `--no-lazy-fetch` (before 2.44)
+the ls-files -m refusal turned into a use fails	no ls-files -m on the working tree	No `ls-files -m`, which runs its clean filter	Use `ls-files -m` for changed files, though it runs its clean filter
+diff-index -p back in the list fails	the agent lists no diff-index -p form, flagged or not	with `ls-files`, `diff --cached`	with `ls-files`, `diff-index -p <commit>`, `diff --cached`
+a fully flagged diff-index -p form fails	the agent lists no diff-index -p form, flagged or not	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false diff-index -p <commit>`. A git that rejects `--no-lazy-fetch` (before 2.44)
+a copy step listing modified files fails	the probe copy step neutralises core.fsmonitor and lazy fetch	ls-files -z --cached --others	ls-files -z -m --cached --others
+a guard that warns and carries on fails	the probe refuses a git before 2.44	2.44: grading by reading'; exit 1; }	2.44: grading by reading'; }
+W2643_BREAKS_END
+  break_replace_rows "$W2643_BREAKS"
+
+  IFS= read -r -d '' W2643_README_BREAKS <<'W2643_README_BREAKS_END' || true
+the README diff --cached form without --no-textconv fails	the README lists the diff --cached form	diff --cached --no-ext-diff --no-textconv --submodule=short`	diff --cached --no-ext-diff --submodule=short`
+the README commit diff form without --submodule=short fails	the README lists the diff <commit> <commit> form	--no-textconv --submodule=short <commit> <commit>`	--no-textconv <commit> <commit>`
+the README log form without --no-show-signature fails	the README lists the log form	log --no-ext-diff --no-textconv --submodule=short --no-show-signature`	log --no-ext-diff --no-textconv --submodule=short`
+the README show form without --no-ext-diff fails	the README lists the show form	show --no-ext-diff --no-textconv --submodule=short --no-show-signature`	show --no-textconv --submodule=short --no-show-signature`
+the README ls-files form without the core.fsmonitor override fails	the README lists the ls-files form	`git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files`	`git --no-pager --no-lazy-fetch -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files`
+the README forms without --no-pager fail	the README lists the ls-files form	`git --no-pager --no-lazy-fetch	`git --no-lazy-fetch
+the README show form with --ext-diff added fails	the README names --ext-diff only to refuse it	show --no-ext-diff --no-textconv --submodule=short --no-show-signature`	show --no-ext-diff --no-textconv --submodule=short --no-show-signature --ext-diff`
+the README diff --cached form with --textconv added fails	the README names --textconv only to refuse it	diff --cached --no-ext-diff --no-textconv --submodule=short`	diff --cached --no-ext-diff --no-textconv --submodule=short --textconv`
+the README log form with --show-signature added fails	the README names --show-signature only to refuse it	log --no-ext-diff --no-textconv --submodule=short --no-show-signature`	log --no-ext-diff --no-textconv --submodule=short --no-show-signature --show-signature`
+a sixth README form for ls-files -m fails	the README names ls-files -m only to refuse it	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -m`, 
+a sixth README form for diff-index -p fails	the README lists no diff-index -p form, flagged or not	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false diff-index -p <commit>`, 
+a README refusal cut to --ext-diff fails	the README says the agent adds no flag back	adds `--ext-diff`, `--textconv` or `--show-signature`,	adds `--ext-diff`,
+W2643_README_BREAKS_END
+  break_replace_rows "$W2643_README_BREAKS" README.md
   expect "the shipped tree passes every W2642 hardening pin" 0 "ok: the skill says the copy is removed on exit" "$TMP/base"
   break_pin_rows "$W2642_HARDEN_PINS"
   break_needle_rows "$W2642_HARDEN_PINS"

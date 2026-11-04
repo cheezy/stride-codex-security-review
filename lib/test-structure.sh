@@ -101,6 +101,7 @@ for script in \
   run_transform_tests.sh \
   check_fixtures.sh \
   check_eval_invocation.sh \
+  check_git_hardening.sh \
   test-all.sh \
   test-structure.sh \
   test-frontmatter.sh; do

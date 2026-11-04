@@ -14,7 +14,13 @@
       - check_eval_invocation.sh how run_eval.sh invokes codex, pinned against
                                 a fake CLI, with break-its on a scratch copy
     When bash/jq are absent, those three are reported as SKIPPED (not failed) — run
-    lib/test-all.sh under bash to gate them. The live-agent eval (run_eval.sh,
+    lib/test-all.sh under bash to gate them. When `bash` and `git` are available
+    it also runs, for parity with lib/test-all.sh:
+      - check_git_hardening.sh  the five git forms, the probe's guard line and
+                                its copy step against scratch repositories whose
+                                own config names marker programs (skips on a
+                                git older than 2.44)
+    and reports it as SKIPPED when either is absent. The live-agent eval (run_eval.sh,
     needs a Codex model) is a separate step. No network.
 
     lib/check_agent_contract.sh (the agent and skill content pins, each with a
@@ -34,6 +40,7 @@ $ErrorActionPreference = 'Stop'
 
 $PsTests = @('test-structure.ps1', 'test-frontmatter.ps1')
 $BashTests = @('run_transform_tests.sh', 'check_fixtures.sh', 'check_eval_invocation.sh')
+$BashGitTests = @('check_git_hardening.sh')
 
 $ran = 0
 $failed = 0
@@ -65,9 +72,25 @@ foreach ($t in $BashTests) {
     Write-Host ""
 }
 
+$git = Get-Command git -ErrorAction SilentlyContinue
+foreach ($t in $BashGitTests) {
+    Write-Host ("=== {0} ===" -f $t)
+    if ($null -eq $bash -or $null -eq $git) {
+        $skipped++
+        Write-Host "  SKIPPED (requires bash + git; run lib/test-all.sh to gate this check)"
+        Write-Host ""
+        continue
+    }
+    $ran++
+    $scriptPath = Join-Path $PSScriptRoot $t
+    & bash $scriptPath
+    if ($LASTEXITCODE -ne 0) { $failed++ }
+    Write-Host ""
+}
+
 Write-Host "================================"
 if ($skipped -gt 0) {
-    Write-Host ("{0} bash-only check(s) SKIPPED (no bash/jq on PATH)" -f $skipped)
+    Write-Host ("{0} bash-only check(s) SKIPPED (no bash, jq or git on PATH)" -f $skipped)
 }
 if ($failed -gt 0) {
     Write-Host ("{0} of {1} smoke-test script(s) FAILED" -f $failed, $ran)
