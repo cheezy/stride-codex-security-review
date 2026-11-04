@@ -37,7 +37,8 @@ directly:
   validation, race conditions, XSS/code execution, and insecure configuration, and
   return structured JSON findings graded critical / high / medium / low / info.
   Runs in one of three modes — `diff`, `full_file`, or `considerations`. Read-only
-  (`read`, `search`, `glob`, `shell`).
+  (`read`, `search`, `glob`, `shell`), apart from the one result file a caller names
+  with `SECURITY_RESULT_PATH`.
 
 ## Workflow Sequence
 
@@ -57,7 +58,8 @@ the output; the `security-review` command-skill selects the mode and dispatches 
 - **Signal over noise.** Low-impact classes (denial-of-service, rate-limiting,
   memory-exhaustion) are filtered out unless they intersect a real vulnerability.
 - **Read-only.** The agent reads the code you hand it and makes no network calls of
-  its own; it never edits, writes, or executes your application.
+  its own; it never edits, writes, or executes your application. Its one write is
+  the result file a caller names with `SECURITY_RESULT_PATH`, under `.stride/`.
 - **No fabrication.** Every finding cites a location in the reviewed code. The
   reviewer does not invent vulnerabilities it cannot point to.
 

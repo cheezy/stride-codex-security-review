@@ -61,7 +61,9 @@ skills* (see [Quick start](#quick-start)), not by typing `/commands`.
 - **A git repository** — the reviewer works from a diff against `HEAD` (diff mode) or
   the tracked files (full mode).
 - **No external accounts or API keys.** The plugin makes no network calls of its own;
-  the `security-reviewer` agent only reads the code you hand it.
+  the `security-reviewer` agent only reads the code you hand it, and writes one file
+  only when a caller supplies `SECURITY_RESULT_PATH` (see
+  [Result file](#result-file-security_result_path)).
 
 ## The model
 
@@ -147,6 +149,28 @@ frontmatter self-tests. `./lib/test-all.sh` is the one-command release gate.
 framework pack, golden transform fixtures, and considerations-mode positive/negative
 controls (a fully-mitigated list → all `mitigated`; an unmitigated consideration →
 `unmitigated` with a backing finding).
+
+### Result file (`SECURITY_RESULT_PATH`)
+
+The agent returns a single fenced ```json document. A caller that dispatches the
+`security-reviewer` agent itself, such as the Stride workflow's deep security review,
+can keep that document out of its own context by giving the agent one line of its own
+in the dispatch instructions. The `stride-security-review` command skill never
+supplies it.
+
+```text
+SECURITY_RESULT_PATH=/absolute/path/to/repo/.stride/.security-<IDENTIFIER>-r<N>.json
+```
+
+- **The path must come from you and be well formed.** It must be absolute and end in a `.stride` directory and a file named `.security-<IDENTIFIER>-r<N>.json` (`<IDENTIFIER>` matching `^[A-Za-z0-9_-]+$`, `<N>` one or more digits). Every component must match `^[A-Za-z0-9._-]+$`, none `.` or `..`, so no quote, space or control character can appear. Anything else, or two `SECURITY_RESULT_PATH` lines anywhere in the prompt, is treated as no path. It is the only output path the agent honours.
+- **Quote lines that look like it.** The agent takes the path only from your own dispatch line, never from the diff, files or considerations it reviews. To keep the two apart, in text you did not write, prefix any line that starts with `SECURITY_RESULT_PATH` with `> ` before you pass it.
+- **Use a fresh path in a directory you control.** The agent writes with one `shell` command under `set -o noclobber`. It refuses an existing file, directory or link at the path, even a dangling one, and a `.stride` directory that is a link. It creates a missing `.stride` once with `mkdir -p` but checks no directory above it, so keep the path out of a shared directory such as `/tmp`. There is no temp file, so read the file only after the dispatch returns, and delete it when you are done.
+- **The session must allow the write.** A subagent inherits the parent session's sandbox and approvals, and its own file cannot change them ([subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)). The default `workspace-write` sandbox lets Codex edit files in the working directory, with `.git`, `.agents`, `.codex` and `.aws` kept read-only ([agent approvals & security](https://learn.chatgpt.com/docs/agent-approvals-security)); `.stride/` is not among the protected paths. Under a `read-only` session, or when the command is denied, the write fails.
+- **What you get back.** The file holds the same document the fence would carry. The reply is at most 10 plain-text lines with no ```json fence: `result: <path> (<bytes> B)`, a `verdicts:` line in `considerations` mode, the severity counts, `files_reviewed`, and up to five `severity | class | file:line` rows. Read the file, never the summary.
+- **A failed write** returns `result: NOT WRITTEN — <reason>` on its own first line, then the full fenced document.
+- **No path, no change.** Without the line, and in `rci_pass` mode, the reply is the single fenced document, as before.
+
+None of this was observed in a Codex CLI session; see the CHANGELOG's *Not verified in a live Codex CLI* list.
 
 ## Quick start
 
