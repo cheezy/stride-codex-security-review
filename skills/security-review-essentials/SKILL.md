@@ -106,7 +106,7 @@ The skill's current flag surface, one line per flag — parsing and full semanti
 - `--update-baseline` — rewrite the baseline file from the current findings (a distinct flag from `--baseline`).
 - `--patches` — emit a surgical-fix diff alongside each finding.
 - `--base <ref>` — diff against `<ref>...HEAD` instead of HEAD (PR workflows pass the target branch).
-- `--fail-on <severity>` — exit non-zero when findings reach the threshold, or with `--considerations` on any unmitigated verdict (and on a partial verdict no finding backs, or missing verdicts); this is the CI security gate that blocks merges.
+- `--fail-on <severity>` — exit non-zero when findings reach the threshold, or with `--considerations` on any unmitigated verdict (and on a partial verdict no finding backs — such as one the agent's tool budget left unverified — or missing verdicts); this is the CI security gate that blocks merges.
 - `--considerations <source>` — assess the diff against a task's `security_considerations` list and return a per-consideration mitigated / partial / unmitigated verdict (the surface the stride-codex deep-review integration uses — see below).
 
 Two further customization knobs:
