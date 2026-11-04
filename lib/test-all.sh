@@ -8,7 +8,13 @@
 #                            Claude Code names, frontmatter), each with a
 #                            break-it on a mktemp copy
 #   - run_transform_tests.sh deterministic SARIF/dedup/fail-on transforms vs golden
-#   - check_fixtures.sh      every fixture has exactly one EXPECTED.md row
+#   - check_fixtures.sh      every fixture has exactly one EXPECTED.md row, and
+#                            every considerations fixture has its sidecar and
+#                            one expected verdict per consideration
+#   - check_eval_invocation.sh how run_eval.sh invokes codex, pinned against a
+#                            fake CLI (agent file as the instructions, tools
+#                            off, empty scratch cwd, auth), with break-its on
+#                            a scratch copy
 #
 # It then runs its own self-test on scratch copies of the plugin: a good copy
 # passes; a copy whose agent tools line is broken makes this runner exit 1, so
@@ -17,7 +23,9 @@
 # self-test is shown to fail the gate. TEST_ALL_CHILD stops the good and broken
 # copies running the self-test again; the sabotaged copy does run it, and
 # TEST_ALL_NESTED stops it running the sabotaged case, bounding the recursion
-# at one level.
+# at one level. The copies run check_agent_contract.sh and
+# check_eval_invocation.sh with their *_CHILD variables set, which skips the
+# break-its those two already ran once at the top level.
 #
 # Structure + frontmatter are pure shell + python3; the transform and eval
 # checks require `jq` (used by the transform scripts). No network, no live agent
@@ -32,7 +40,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-TESTS="test-structure.sh test-frontmatter.sh check_agent_contract.sh run_transform_tests.sh check_fixtures.sh"
+TESTS="test-structure.sh test-frontmatter.sh check_agent_contract.sh run_transform_tests.sh check_fixtures.sh check_eval_invocation.sh"
 
 RAN=0
 FAILED=0
@@ -76,7 +84,7 @@ if [ -z "${TEST_ALL_CHILD:-}" ]; then
   run_copy() { # $1=label $2=tree $3=want-exit $4.. = needles that must appear
     local label="$1" tree="$2" want="$3" out rc needle
     shift 3
-    out="$(TEST_ALL_CHILD=1 CHECK_AGENT_CONTRACT_CHILD=1 bash "$tree/lib/test-all.sh" 2>&1)"; rc=$?
+    out="$(TEST_ALL_CHILD=1 CHECK_AGENT_CONTRACT_CHILD=1 CHECK_EVAL_INVOCATION_CHILD=1 bash "$tree/lib/test-all.sh" 2>&1)"; rc=$?
     if [ "$rc" -ne "$want" ]; then
       printf 'FAIL: self-test: %s -- exit %d, wanted %d\n' "$label" "$rc" "$want"; st_failed=1; return
     fi
@@ -101,7 +109,7 @@ if [ -z "${TEST_ALL_CHILD:-}" ]; then
     R="$TMP/sabotaged/lib/test-all.sh"
     awk '/^  run_copy "a good copy passes the runner"/ && !d { sub(/"smoke-test scripts passed"/, "\"a needle no run prints\""); d = 1 } { print }' \
       "$R" > "$R.new" && mv "$R.new" "$R"
-    out="$(TEST_ALL_NESTED=1 CHECK_AGENT_CONTRACT_CHILD=1 bash "$R" 2>&1)"; rc=$?
+    out="$(TEST_ALL_NESTED=1 CHECK_AGENT_CONTRACT_CHILD=1 CHECK_EVAL_INVOCATION_CHILD=1 bash "$R" 2>&1)"; rc=$?
     if [ "$rc" -ne 1 ]; then
       printf 'FAIL: self-test: a failing runner self-test fails the runner -- exit %d, wanted 1\n' "$rc"; st_failed=1
     elif ! printf '%s\n' "$out" | grep -qF -- "FAIL: self-test: a good copy passes the runner -- output lacks: a needle no run prints"; then

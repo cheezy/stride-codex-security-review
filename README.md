@@ -148,7 +148,9 @@ frontmatter self-tests. `./lib/test-all.sh` is the one-command release gate.
 **`fixtures/`** — a corpus of ~70 deliberately-vulnerable code samples across every
 framework pack, golden transform fixtures, and considerations-mode positive/negative
 controls (a fully-mitigated list → all `mitigated`; an unmitigated consideration →
-`unmitigated` with a backing finding).
+`unmitigated` with a backing finding; a `partial` defence; a `None —` placeholder;
+reviewer-directed text inside a consideration and inside the diff; a noise-class
+consideration; and a gap in unchanged code).
 
 ### Result file (`SECURITY_RESULT_PATH`)
 
@@ -171,6 +173,30 @@ SECURITY_RESULT_PATH=/absolute/path/to/repo/.stride/.security-<IDENTIFIER>-r<N>.
 - **No path, no change.** Without the line, and in `rci_pass` mode, the reply is the single fenced document, as before.
 
 None of this was observed in a Codex CLI session; see the CHANGELOG's *Not verified in a live Codex CLI* list.
+
+### Running the eval
+
+`lib/run_eval.sh` runs the agent over the fixtures and scores each answer against `fixtures/EXPECTED.md`. It is a separate, paid step, not part of `./lib/test-all.sh`.
+
+**Codex CLI cannot run a custom agent as the session agent of a headless run.** The `codex exec` section of the [CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli) has no agent flag, and Codex starts custom agents only as subagents on request ([subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)). So the runner does not select the installed `security-reviewer` agent. It hands this checkout's `agents/security-reviewer.md` to `codex exec` as the session's base instructions, with `-c model_instructions_file='<path>'` ([config reference](https://learn.chatgpt.com/docs/config-file/config-reference): "Replacement for built-in instructions"). The model then answers under this plugin's agent prompt rather than Codex's default one. That is what the eval scores.
+
+Each fixture runs from an empty scratch directory outside any Git repository, so the agent sees only the prompt, never `EXPECTED.md` or the repo:
+
+- `--skip-git-repo-check` and `--cd <scratch dir>`, with the scratch directory also the working directory;
+- `--sandbox read-only`, `-c approval_policy="never"`, and the shell tool, web search, subagents and image viewing turned off with `-c` overrides;
+- `--ignore-user-config`, so no MCP servers or settings from your `config.toml`, and `--ephemeral`, so no session files are saved;
+- the prompt on stdin (`-`).
+
+```bash
+bash lib/run_eval.sh --dry-run                    # print the exact invocation; no CLI call, exit 0
+bash lib/run_eval.sh --only considerations/       # the considerations-mode fixtures
+bash lib/run_eval.sh --fixture sql_injection.py   # one fixture
+bash lib/run_eval.sh                              # every fixture
+```
+
+Every run prints `# invocation: <argv>` and `# auth: <mode>` after the TAP plan line. Auth is `CODEX_API_KEY` when set, otherwise a saved login (`codex login status` exits 0); with neither, the runner exits 2 with a message. It never prints the key or the login status. `EVAL_AGENT_FILE` points the run at another instructions file and `EVAL_MODEL` passes `-m`. Logs go to `logs/` (or `LOG_DIR`): `<stem>.raw.txt` is the final message, `<stem>.err.txt` is Codex's stderr.
+
+`lib/check_eval_invocation.sh` pins that invocation against a fake `codex` with no model, key or network, and runs from `./lib/test-all.sh`. Nothing above has been observed in a live Codex CLI. A run is recorded in the *Recorded runs* table at the end of `fixtures/EXPECTED.md`, and none has been recorded yet. This variant has no CI workflow, so the eval runs locally only.
 
 ## Quick start
 

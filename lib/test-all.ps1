@@ -8,10 +8,12 @@
       - test-frontmatter.ps1    skill/agent YAML frontmatter (Codex tools contract)
     and, when `bash` and `jq` are available on the host (e.g. Git Bash on Windows),
     also the deterministic transform + eval bash checks, for parity with those
-    two in lib/test-all.sh:
+    three in lib/test-all.sh:
       - run_transform_tests.sh  SARIF/dedup/fail-on transforms vs golden
       - check_fixtures.sh       every fixture has exactly one EXPECTED.md row
-    When bash/jq are absent, those two are reported as SKIPPED (not failed) — run
+      - check_eval_invocation.sh how run_eval.sh invokes codex, pinned against
+                                a fake CLI, with break-its on a scratch copy
+    When bash/jq are absent, those three are reported as SKIPPED (not failed) — run
     lib/test-all.sh under bash to gate them. The live-agent eval (run_eval.sh,
     needs a Codex model) is a separate step. No network.
 
@@ -31,7 +33,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $PsTests = @('test-structure.ps1', 'test-frontmatter.ps1')
-$BashTests = @('run_transform_tests.sh', 'check_fixtures.sh')
+$BashTests = @('run_transform_tests.sh', 'check_fixtures.sh', 'check_eval_invocation.sh')
 
 $ran = 0
 $failed = 0
