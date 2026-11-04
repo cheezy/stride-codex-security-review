@@ -170,6 +170,12 @@ can keep that document out of its own context by giving the agent one line of it
 in the dispatch instructions. The `stride-security-review` command skill never
 supplies it.
 
+Such a caller opens its prompt with the agent's one mode tag, on its own line:
+`/security-review invocation, mode: <mode>` (`diff`, `considerations` or `full_file`).
+No other spelling is a tag. With no tag the agent reviews in `diff` mode, except that
+a considerations list an older caller sends with no tag, under any header, is still
+reviewed in `considerations` mode.
+
 ```text
 SECURITY_RESULT_PATH=/absolute/path/to/repo/.stride/.security-<IDENTIFIER>-r<N>.json
 ```

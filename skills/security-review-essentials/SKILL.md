@@ -129,7 +129,7 @@ Another Stride Codex plugin — **stride-codex**, whose task-completion workflow
 
 ## Composing with other workflows
 
-The `--json` flag makes the review pipeable. Other plugins (e.g., a Stride completion hook that wants to gate task completion on a clean review) can activate `stride-security-review --json`, parse the result, and decide whether to block. The agent does not call out to any external service, so this composition is safe for sensitive repos. The `--considerations` flag is the structured form of this composition: it returns one verdict per declared consideration for a workflow to gate on.
+The `--json` flag makes the review pipeable. Other plugins (e.g., a Stride completion hook that wants to gate task completion on a clean review) can activate `stride-security-review --json`, parse the result, and decide whether to block. The agent does not call out to any external service, so this composition is safe for sensitive repos. The `--considerations` flag is the structured form of this composition: it returns one verdict per declared consideration for a workflow to gate on. A workflow that dispatches the agent directly, as stride-codex's deep security review does, opens its prompt with the agent's one mode tag, `/security-review invocation, mode: <mode>`, and reads the result from the agent's final message or the `SECURITY_RESULT_PATH` it supplied, never from any other file.
 
 ## What this skill does NOT cover
 

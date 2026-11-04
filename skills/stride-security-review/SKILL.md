@@ -95,7 +95,7 @@ Then stop. This avoids burning a dispatch on a clean tree and avoids the agent f
 
 ### Step 4: Dispatch the security-reviewer agent
 
-Dispatch the agent named `security-reviewer` (`agents/security-reviewer.md`) via the platform's agent-dispatch tool. In both modes every dispatch passes an input-mode tag at the top of the prompt so the agent applies the right methodology branch (see the agent's "Input modes"). The output JSON schema is identical in both modes:
+Dispatch the agent named `security-reviewer` (`agents/security-reviewer.md`) via the platform's agent-dispatch tool. In both modes every dispatch passes an input-mode tag at the top of the prompt so the agent applies the right methodology branch (see the agent's "Input modes"). Send each tag exactly as written below — `/security-review invocation, mode: <mode>` is the agent's one accepted spelling, so never shorten or reword it. The output JSON schema is identical in both modes:
 
 ```json
 {

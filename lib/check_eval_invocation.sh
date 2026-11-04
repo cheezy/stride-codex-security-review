@@ -20,7 +20,10 @@
 #      even looks for the CLI, and writes no log directory.
 #   2. A fake CLI records what run_eval.sh actually executed: the same argv, a
 #      cwd that is empty and outside the repo, and the considerations-mode
-#      prompt with the fixture's diff byte for byte on stdin, never in argv. A
+#      prompt, whose first line is the agent's one tag `/security-review
+#      invocation, mode: considerations` (and run_eval.sh's full_file prompt
+#      opens with the full_file tag), with the fixture's diff byte for byte on
+#      stdin, never in argv. A
 #      canned verdict scores `ok`, with a saved login accepted.
 #   3. CODEX_API_KEY is accepted as auth, `login status` is then not asked, and
 #      the key is never printed or logged.
@@ -216,7 +219,8 @@ check "the CLI ran outside the repo"                  outside_repo "$fake_pwd"
 check "the CLI ran in an empty directory"             test "$(cat "$TMP/rec-fake/cwd_count" 2>/dev/null)" = "0"
 fake_cd="$(awk 'prev == "--cd" { print; exit } { prev = $0 }' "$ARGV")"
 check "the CLI's --cd is the directory it ran in"     test -n "$fake_cd" -a "$(cd "$fake_cd" 2>/dev/null && pwd -P)" = "$(cd "$fake_pwd" 2>/dev/null && pwd -P)"
-check "the prompt is in considerations mode"          test "$(sed -n 1p "$TMP/rec-fake/stdin" 2>/dev/null)" = "mode: considerations"
+check "the prompt is in considerations mode"          test "$(sed -n 1p "$TMP/rec-fake/stdin" 2>/dev/null)" = "/security-review invocation, mode: considerations"
+check "the full_file prompt opens with the tag"       contains "$RUN_EVAL" "printf '/security-review invocation, mode: full_file\n\n'"
 check "the fixture's diff reaches stdin byte for byte" python3 -I -c 'import sys; sys.exit(0 if open(sys.argv[1],"rb").read() in open(sys.argv[2],"rb").read() else 1)' "$ROOT_DIR/fixtures/$FIXTURE" "$TMP/rec-fake/stdin"
 check "the fixture's text is never in argv"           lacks "$ARGV" "request.args"
 check "the CLI's stderr is kept in .err.txt"          contains "$TMP/logs-fake/considerations_token_logging_unmitigated_diff.err.txt" "progress goes to stderr"
@@ -376,7 +380,14 @@ open(p, "w", encoding="utf-8").write(s.replace(old, new))' "$t/lib/run_eval.sh" 
   break_sub "putting the prompt in argv fails" \
     '"${CODEX_ARGV[@]}") > "$raw"' '"${CODEX_ARGV[@]}" "$prompt") > "$raw"' "the fixture's text is never in argv"
   break_sub "changing the prompt's mode line fails" \
-    "      printf 'mode: considerations\\n\\n'" "      printf 'mode: diff\\n\\n'" "the prompt is in considerations mode"
+    "      printf '/security-review invocation, mode: considerations\\n\\n'" "      printf '/security-review invocation, mode: diff\\n\\n'" "the prompt is in considerations mode"
+  # W2278: a bare `mode:` line or the slash-less spelling is not the agent's tag.
+  break_sub "a bare mode: considerations line fails" \
+    "      printf '/security-review invocation, mode: considerations\\n\\n'" "      printf 'mode: considerations\\n\\n'" "the prompt is in considerations mode"
+  break_sub "the slash-less considerations tag fails" \
+    "      printf '/security-review invocation, mode: considerations\\n\\n'" "      printf 'security-review invocation, mode: considerations\\n\\n'" "the prompt is in considerations mode"
+  break_sub "a bare mode: full_file line fails" \
+    "  printf '/security-review invocation, mode: full_file\\n\\n'" "  printf 'mode: full_file\\n\\n'" "the full_file prompt opens with the tag"
   break_sub "skipping the login-status call fails" \
     '  if "$CODEX_CLI" login status >/dev/null 2>&1 </dev/null; then' '  if true; then' "the CLI was asked for its login status"
   break_it "not printing the invocation fails"        '^  print_invocation$'              "dry-run prints an invocation line"
