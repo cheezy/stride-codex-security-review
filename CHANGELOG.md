@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`lib/check_agent_contract.sh`, an offline contract check on the agent and both skills (W2634).** Modelled on upstream's `scripts/check_agent_contract.sh` (`cheezy/stride-security-review` fd58c62) and on the Copilot port's copy of it (`stride-copilot-security-review` 62880eb). One section per pinned rule, each printing `ok:` or `FAIL:`. It pins the agent's `tools:` line exactly as it ships, and separately names any tool outside the stride-codex vocabulary (`read`, `search`, `glob`, `shell`). It refuses a quoted or backticked Claude Code tool name in the agent, both skills and the README; the bare English word passes, and `AGENTS.md`'s Tool Name Mapping table is exempt because it names them on purpose. It refuses Claude Code mechanisms (the plugin-root variable, `claude -p`, `--plugin-dir`, the Agent dispatch tool and its `subagent_type` parameter, `.claude/`) in those four files and `AGENTS.md`. It checks frontmatter shape, required keys and names for the agent and both skills, and stops with a message when a checked file is missing, empty or unreadable. Every pin has a break-it in the script's self-test section: it plants the broken shape in a `mktemp -d` copy of the files and runs the copy's script as a child. The copy is removed on every exit path, including a failed check. The real files are only read. The script is bash only (3.2-compatible), with no PowerShell mirror. Later port tasks add their own sections.
+- **`lib/test-all.sh` runs the contract check and self-tests its own wiring (W2634).** After the sub-scripts, it copies an explicit list of the plugin's files into a temporary directory. A good copy must pass. A copy with an extra tool on the agent's tools line, which only the contract check refuses, must make the runner exit 1. A sabotaged copy, whose own runner self-test cannot pass while every sub-script does, must make its runner exit 1 too. That copy runs its self-test with `TEST_ALL_NESTED` set, which skips the sabotaged case there and bounds the recursion at one level. The `lib/test-all.ps1` header now says the contract check and this self-test are bash-only and are not run there.
+
+### Not verified in a live Codex CLI
+
+Codex CLI is not installed where this was written (`which codex` fails, `~/.codex` is absent). Everything below was read in Codex's documentation on 2026-11-04 and not observed.
+
+- **The agent's tools line is unchanged and none of its names is verified (W2634).** Codex's subagents documentation ([learn.chatgpt.com/docs/agent-configuration/subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents), the redirect target of [developers.openai.com/codex/subagents](https://developers.openai.com/codex/subagents)) defines a custom agent as a standalone TOML file in `~/.codex/agents/` or `.codex/agents/`. Its required keys are `name`, `description` and `developer_instructions`. The page documents no `tools` key and lists no tool names. Its only tool control is setting feature keys, among them `features.shell_tool`, to `false`, and it says subagents inherit the parent's sandbox, approvals and MCP servers. By name, against that page:
+  - `read`: not listed. Kept.
+  - `search`: not listed. Kept.
+  - `glob`: not listed. Kept.
+  - `shell`: not listed as a tool name. The only shell control on the page is `features.shell_tool`. That suggests a custom agent has a shell unless the key is turned off, but this agent was never observed holding one. Kept.
+
+  The documentation gives no tool list to check a name against, so nothing is renamed. All ten stride-codex agents draw their tools lines only from these four names: five in `stride-codex`, two each in `stride-codex-exploratory-testing` and `stride-codex-ideation`, and this one. The four names also appear in `AGENTS.md`'s Tool Name Mapping table, alongside `edit` and `write`. None of them carries a Codex citation. A human with Codex CLI should confirm whether the `tools:` frontmatter is read at all.
+- **Whether Codex loads this agent file at all is unverified.** `install.sh` and `install.ps1` copy `agents/*.md`, a Markdown file with YAML frontmatter, into `~/.agents/agents/` (or `.agents/agents/`). The documentation above loads TOML agents from `~/.codex/agents/` or `.codex/agents/`. This predates this change and is left alone here.
+- **`codex exec --agent security-reviewer` (`lib/run_eval.sh:243`) is unverified.** The `codex exec` section of Codex's CLI reference ([learn.chatgpt.com/docs/developer-commands?surface=cli](https://learn.chatgpt.com/docs/developer-commands?surface=cli), the redirect target of [developers.openai.com/codex/cli/reference](https://developers.openai.com/codex/cli/reference)) does not document an `--agent` flag. The runner is unchanged.
+
+### Porting-guide corrections (for the release)
+
+The codex rows of upstream's `docs/porting-g452-g454.md` (at 0ccf9bf) are wrong about this variant's eval tooling. The guide lives upstream and is not edited here.
+
+- **Line 82** says "no eval script or CI workflow found". `lib/run_eval.sh` exists and dispatches through `codex exec --agent security-reviewer` (`lib/run_eval.sh:243`). `lib/sarif_transform.sh` exists, and `lib/run_transform_tests.sh` and `lib/check_fixtures.sh` exist and run from `lib/test-all.sh`. "No CI workflow" is still true, because there is no `.github/` directory.
+- **Lines 130 and 307** repeat the error. Line 130 says "codex has fixtures but no eval runner", and line 307 tells codex to "build a runner around their own CLI". A runner already exists. What it lacks is a live run, and the `--agent` flag it relies on is unverified (above).
+- **The row's tools cell** matches `agents/security-reviewer.md:5`, but rests on no Codex citation (above).
+
 ## [0.1.2] - 2026-08-21
 
 Housekeeping. No change to the command-skill, the reviewer agent, or the analysis methodology.

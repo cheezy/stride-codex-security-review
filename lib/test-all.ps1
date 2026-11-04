@@ -7,18 +7,24 @@
       - test-structure.ps1      plugin layout (manifest, skill, agent, lib/, fixtures/)
       - test-frontmatter.ps1    skill/agent YAML frontmatter (Codex tools contract)
     and, when `bash` and `jq` are available on the host (e.g. Git Bash on Windows),
-    also the deterministic transform + eval bash checks for full parity with
-    lib/test-all.sh:
+    also the deterministic transform + eval bash checks, for parity with those
+    two in lib/test-all.sh:
       - run_transform_tests.sh  SARIF/dedup/fail-on transforms vs golden
       - check_fixtures.sh       every fixture has exactly one EXPECTED.md row
     When bash/jq are absent, those two are reported as SKIPPED (not failed) — run
     lib/test-all.sh under bash to gate them. The live-agent eval (run_eval.sh,
     needs a Codex model) is a separate step. No network.
 
+    lib/check_agent_contract.sh (the agent and skill content pins, each with a
+    break-it on a mktemp copy) and lib/test-all.sh's runner self-test are
+    bash-only. This script does not run them, even when bash is present, and
+    has no PowerShell mirror of them: run lib/test-all.sh under bash to gate
+    them.
+
       pwsh ./lib/test-all.ps1
 
     Exit code: 0 only if every sub-script that ran passes; 1 if any fails.
-    Mirrors lib/test-all.sh.
+    Mirrors lib/test-all.sh, less its bash-only checks.
 #>
 
 Set-StrictMode -Version Latest
