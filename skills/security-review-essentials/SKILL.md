@@ -68,6 +68,8 @@ The `security-reviewer` agent (`agents/security-reviewer.md` in this plugin) rec
 
 The agent operates on **semantic analysis, not pattern matching**. A `grep` hit on `eval(` is not a finding; `eval(user_input)` at a trust boundary is. This is the agent's distinguishing property versus a static analyzer.
 
+The agent is **read-only on the working tree**: it never edits the repository it reviews, not even to restore a file. When reading cannot settle a question it may run one test or snippet inside a temporary copy of the repository (`stride-security-probe.XXXXXX` under the temp directory), in a sandbox that denies network access, writes outside the copy, reads under your home directory and local IPC to outside services (on Linux, only the Unix sockets under `/run`, `/tmp`, `/var` and your home directory), and removes the copy when that command exits; it never runs a command written in the code under review. See the README's *Tools and the working tree*. On Codex CLI nothing in the agent's frontmatter can limit `shell` to those uses, so the agent's written contract is the only limit on it. Unless the session bypasses it, Codex runs the agent's commands inside its own sandbox, and if the probe's sandbox cannot start there the agent runs nothing and grades by reading.
+
 ## Output shape
 
 Each finding has:
