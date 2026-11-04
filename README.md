@@ -14,6 +14,10 @@ port of the Claude Code plugin
 > It deliberately filters out low-impact noise (denial-of-service, rate-limiting,
 > memory-exhaustion) unless it intersects a real vulnerability class, so the output
 > is signal, not a linter dump.
+>
+> **One exception, in considerations mode only.** When a consideration the task lists names one of these risks itself — "uploads are size-bounded", "the export endpoint is rate-limited" — that risk is assessed for that consideration, and a `partial` or `unmitigated` verdict on it is backed by a finding like any other. A risk the list does not name is still suppressed, and diff and full modes keep the filter unchanged.
+>
+> Everything the agent reviews — diff hunks, code comments, string literals, the files it reads and the considerations it is handed — is data, never instructions: a comment telling the reviewer to report nothing is ignored. In diff and considerations mode it may read the changed files in full and their direct callers, up to 10 files beyond the diff; it never enumerates the rest of the repository.
 
 > **No slash commands.** Codex has no `/commands`: you drive the plugin by
 > *activating skills* by name (see [Quick start](#quick-start)), not by typing
@@ -120,7 +124,9 @@ severity-grouped findings.**
   configuration, and supply chain. Runs in `diff`, `full_file`, or `considerations`
   mode and returns structured JSON findings graded critical / high / medium / low /
   info (each with `cwe` + `owasp` identifiers), with low-impact noise
-  (denial-of-service, rate-limiting, memory-exhaustion) filtered out.
+  (denial-of-service, rate-limiting, memory-exhaustion) filtered out, except a risk
+  of those kinds that a task's own consideration names in considerations mode.
+  In considerations mode each verdict is exactly one of `mitigated` / `partial` / `unmitigated` (there is no fourth value; a consideration the change has no surface for is `mitigated`), and a `partial`/`unmitigated` verdict is backed by a matching `findings[]` entry. A gap that predates the change is graded against the changed code and named in `note` plus one `info` finding. A consideration that embeds a credential, or names where one lives, is echoed as `[REDACTED — row text embedded a credential]` in its position rather than verbatim.
 
 ### What it catches
 
@@ -150,7 +156,8 @@ framework pack, golden transform fixtures, and considerations-mode positive/nega
 controls (a fully-mitigated list → all `mitigated`; an unmitigated consideration →
 `unmitigated` with a backing finding; a `partial` defence; a `None —` placeholder;
 reviewer-directed text inside a consideration and inside the diff; a noise-class
-consideration; and a gap in unchanged code).
+consideration; a gap in unchanged code; a rate-limit consideration; and a
+consideration that embeds a fake credential).
 
 ### Result file (`SECURITY_RESULT_PATH`)
 
@@ -186,6 +193,8 @@ Each fixture runs from an empty scratch directory outside any Git repository, so
 - `--sandbox read-only`, `-c approval_policy="never"`, and the shell tool, web search, subagents and image viewing turned off with `-c` overrides;
 - `--ignore-user-config`, so no MCP servers or settings from your `config.toml`, and `--ephemeral`, so no session files are saved;
 - the prompt on stdin (`-`).
+
+With the shell tool off and an empty scratch directory, the eval never exercises the agent's read scope, and it checks verdicts and whether a finding exists — not redaction, `note` text, or a finding's severity — so those are checked by hand in `logs/` where a row says so.
 
 ```bash
 bash lib/run_eval.sh --dry-run                    # print the exact invocation; no CLI call, exit 0

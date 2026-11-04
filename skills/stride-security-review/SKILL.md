@@ -108,7 +108,7 @@ Dispatch the agent named `security-reviewer` (`agents/security-reviewer.md`) via
 }
 ```
 
-When `CONSIDERATIONS_MODE=true`, the document additionally carries a top-level `consideration_verdicts` array — one `{consideration, status (mitigated|partial|unmitigated), evidence, note}` entry per resolved consideration. Like `maestro_layer` and `patch`, it is absent unless the mode is active (byte-identical output).
+When `CONSIDERATIONS_MODE=true`, the document additionally carries a top-level `consideration_verdicts` array — one `{consideration, status (mitigated|partial|unmitigated), evidence, note}` entry per resolved consideration. The three statuses are the whole enum, and a consideration that embeds a credential comes back as `[REDACTED — row text embedded a credential]` in its position rather than verbatim. Like `maestro_layer` and `patch`, it is absent unless the mode is active (byte-identical output).
 
 #### Step 4a: Diff mode (`FULL_MODE=false`, default)
 
@@ -188,8 +188,8 @@ The fingerprint MUST be stable across runs — it must NOT incorporate severity,
 4. When `MAESTRO_MODE=true` AND at least one finding has a populated `maestro_layer`, after the severity sections print `## By MAESTRO layer`. For each of the seven layers in canonical order (`foundation-models`, `data-operations`, `agent-frameworks`, `deployment-infrastructure`, `evaluation-observability`, `security-compliance`, `agent-ecosystem`), if any finding maps to it, print one line: `**<layer-id>** (<count>): <comma-separated file:line references>`.
 5. When `CONSIDERATIONS_MODE=true`, after the severity sections (and the "By MAESTRO layer" section, when present) print a per-consideration block — this renders whether or not there are findings:
    - A heading: `## Security considerations`.
-   - For each entry in the agent's `consideration_verdicts` array, in order: one bold line `**<status>** — <consideration>` (`<status>` = `mitigated`, `partial`, or `unmitigated`, verbatim from the entry), an `Evidence:` line with the entry's `evidence` (file:line or short note) followed by the entry's `note` as the one-line rationale, and a blank line between considerations.
-   - This lets a reviewer confirm each declared consideration was actually mitigated by the diff. A `partial` or `unmitigated` verdict should correspond to a finding in the severity sections above.
+   - For each entry in the agent's `consideration_verdicts` array, in order: one bold line `**<status>** — <consideration>` (`<status>` = `mitigated`, `partial`, or `unmitigated`, verbatim from the entry; `<consideration>` is the entry's `consideration` as returned — print a redaction sentinel as-is and never substitute the original text from the resolved list), an `Evidence:` line with the entry's `evidence` (file:line or short note) followed by the entry's `note` as the one-line rationale, and a blank line between considerations.
+   - This lets a reviewer confirm each declared consideration was actually mitigated by the diff. A `partial` or `unmitigated` verdict corresponds to a finding in the severity sections above — including one on a listed denial-of-service, rate-limiting or memory-exhaustion consideration, which the agent's noise filter exempts in this mode.
 6. If there are zero findings, print the mode-appropriate line: diff `No findings. Reviewed M files.`; full `No findings. Reviewed M files in full-scan mode.`
 7. **Skipped-files tail (full mode only).** If `summary.files_skipped` is non-empty, after every other section print `## Skipped` (one blank line above), one summary line `Skipped K files: binary=<a>, oversize=<b>, unreadable=<c>` (omit any zero-count reason), then a bulleted list of skipped paths in enumeration order `- <path> (binary|oversize|unreadable)`, capped at 50 with a final `- ... and <K - 50> more`. When `files_skipped` is empty, OMIT the whole block. Diff mode never emits the key, so this block never renders there.
 

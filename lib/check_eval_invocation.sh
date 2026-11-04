@@ -61,7 +61,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_EVAL="$SCRIPT_DIR/run_eval.sh"
 AGENT_FILE="$ROOT_DIR/agents/security-reviewer.md"
 FIXTURE="considerations/token_logging_unmitigated.diff"
-U_FIXTURE="considerations/upload_body_size_unmitigated.diff"
+U_FIXTURE="considerations/credential_in_consideration_mitigated.diff"
 KEY_SENTINEL="FAKE_CODEX_KEY_SENTINEL_not_a_real_key"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/check_eval_invocation.XXXXXX")" || {
@@ -274,7 +274,7 @@ check "--only keeps nothing else"                     test "$(grep -c '^ok ' "$T
 CASE_ENV="" run_case only_none --dry-run --only no-such-prefix/
 check "--only with no match exits 2"                  rc_is only_none 2
 CASE_ENV="" run_case umark --dry-run --fixture "$U_FIXTURE"
-check "a row with no AND clause parses with U"        contains "$TMP/umark.out" "ok 1 - $U_FIXTURE (considerations: unmitigated (U))"
+check "a row with no AND clause parses with U"        contains "$TMP/umark.out" "ok 1 - $U_FIXTURE (considerations: mitigated,mitigated (U))"
 
 # --- 8. break-its on a scratch copy of the tree ----------------------------------
 # copy_tree <dir>: an explicit list of the files these checks read, never a
