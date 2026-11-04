@@ -105,18 +105,32 @@ severity-grouped findings.**
   | `--json` | Raw JSON output for piping into tools. |
   | `--sarif` | SARIF v2.1.0 output for code-scanning integrations (mutually exclusive with `--json`). |
   | `--maestro` | Add a MAESTRO 7-layer classification per finding + a "By MAESTRO layer" summary. |
-  | `--rci [N]` | Run N (≤3) recursive criticism-and-improvement passes to drop false positives / surface misses. |
-  | `--baseline [path]` | Suppress already-acknowledged findings recorded in a baseline file. |
+  | `--rci [N]` | Run N (≤3) recursive criticism-and-improvement passes to drop false positives / surface misses. Every pass re-sends the considerations, MAESTRO and patches directives of the first dispatch, so `consideration_verdicts`, `maestro_layer` and `patch` survive it. |
+  | `--baseline [path]` | Suppress already-acknowledged findings recorded in a baseline file. A finding that backs a `partial` or `unmitigated` consideration verdict is never suppressed, so `suppressed_count` never counts it. |
   | `--update-baseline` | Rewrite the baseline from the current findings. |
   | `--patches` | Emit a surgical-fix unified diff alongside each finding where one exists. |
   | `--base <ref>` | Diff against `<ref>...HEAD` (PR-against-base CI scope). |
-  | `--fail-on <severity>` | Exit non-zero when findings reach the threshold — the CI security gate. |
+  | `--fail-on <severity>` | Exit non-zero when findings reach the threshold — the CI security gate. With `--considerations` it also fails closed, whatever the threshold, on an `unmitigated` verdict, a `partial` verdict no finding backs, and a missing or malformed `consideration_verdicts` array — including one whose entries do not answer the considerations in order. A backed `partial` is gated by its finding's severity. |
   | `--considerations <source>` | Assess the diff against a task's `security_considerations` list and return a per-consideration **mitigated / partial / unmitigated** verdict. |
 
   Opt-in output fields (`maestro_layer`, `patch`, `consideration_verdicts`) are omitted
   unless their flag is set, so output stays byte-identical for callers that don't opt
   in. The `0 / 1 / 2` exit-code contract (clean / findings-at-threshold / misuse) and
-  the `--sarif`⊕`--json` mutual exclusion are preserved.
+  the `--sarif`⊕`--json` mutual exclusion are preserved. The gate runs after every
+  output form, so `--json --fail-on` and `--sarif --fail-on` gate like the report.
+
+  A CI job that post-checks `--json` output with `jq`, as the skill's CI note advises,
+  counts findings only unless it is extended. With `--considerations`, add the
+  unmitigated verdicts, for example
+  `([.findings[]? | select(.severity == "critical")] | length) + ([.consideration_verdicts[]? | select(.status == "unmitigated")] | length)`.
+  That one-line filter still fails open on a `partial` verdict no finding backs and on
+  a missing, short or malformed verdict array, which the skill's exit code covers. A
+  job that has this repository checked out can gate fail-closed instead with
+  `bash lib/sarif_transform.sh failon <severity> review.json <considerations-file>`,
+  the tested reference of the same rules: it exits `1` on a trip and `2` on anything
+  but one findings document, and given the considerations file it also checks that
+  each verdict answers its consideration in order. `lib/` is not installed with the
+  skills, so this is for CI only.
 
 **1 agent** (dispatched by the command-skill, not activated directly):
 
@@ -128,7 +142,7 @@ severity-grouped findings.**
   info (each with `cwe` + `owasp` identifiers), with low-impact noise
   (denial-of-service, rate-limiting, memory-exhaustion) filtered out, except a risk
   of those kinds that a task's own consideration names in considerations mode.
-  In considerations mode each verdict is exactly one of `mitigated` / `partial` / `unmitigated` (there is no fourth value; a consideration the change has no surface for is `mitigated`), and a `partial`/`unmitigated` verdict is backed by a matching `findings[]` entry. A gap that predates the change is graded against the changed code and named in `note` plus one `info` finding. A consideration that embeds a credential, or names where one lives, is echoed as `[REDACTED — row text embedded a credential]` in its position rather than verbatim.
+  In considerations mode each verdict is exactly one of `mitigated` / `partial` / `unmitigated` (there is no fourth value; a consideration the change has no surface for is `mitigated`), and a `partial`/`unmitigated` verdict is backed by a matching `findings[]` entry, which its `evidence` names by `file:line` (or a `file:start-end` range). A gap that predates the change is graded against the changed code and named in `note` plus one `info` finding. A consideration that embeds a credential, or names where one lives, is echoed as `[REDACTED — row text embedded a credential]` in its position rather than verbatim.
 
 ### What it catches
 
@@ -257,7 +271,9 @@ commands.
    a single inline string — e.g. *"security-review --considerations threat-model.md"*.
    You get one **mitigated / partial / unmitigated** verdict per consideration
    alongside the findings (a `partial` or `unmitigated` verdict is backed by a
-   corresponding finding).
+   corresponding finding). Add `--rci --fail-on high` to keep the verdicts through a
+   critique pass and fail on any `unmitigated` verdict, e.g.
+   *"security-review --considerations threat-model.md --rci --fail-on high"*.
 
 3. **Act on the findings.** Fix the critical/high items before merging; the low/info
    items are context. Re-run the review to confirm the fixes.

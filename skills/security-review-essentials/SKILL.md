@@ -101,12 +101,12 @@ The skill's current flag surface, one line per flag — parsing and full semanti
 - `--json` — raw JSON output for piping into tools.
 - `--sarif` — SARIF v2.1.0 output for code-scanning integrations (mutually exclusive with `--json`).
 - `--maestro` — classify each finding by MAESTRO agentic-AI threat layer.
-- `--rci [N]` — run N additional critique-and-refine passes over the findings.
-- `--baseline [path]` — suppress already-acknowledged findings recorded in a baseline file.
+- `--rci [N]` — run N additional critique-and-refine passes over the findings; each pass re-sends the considerations, MAESTRO and patches directives, so their output fields survive it.
+- `--baseline [path]` — suppress already-acknowledged findings recorded in a baseline file; a finding that backs a partial or unmitigated consideration verdict is never suppressed.
 - `--update-baseline` — rewrite the baseline file from the current findings (a distinct flag from `--baseline`).
 - `--patches` — emit a surgical-fix diff alongside each finding.
 - `--base <ref>` — diff against `<ref>...HEAD` instead of HEAD (PR workflows pass the target branch).
-- `--fail-on <severity>` — exit non-zero when findings reach the threshold; this is the CI security gate that blocks merges.
+- `--fail-on <severity>` — exit non-zero when findings reach the threshold, or with `--considerations` on any unmitigated verdict (and on a partial verdict no finding backs, or missing verdicts); this is the CI security gate that blocks merges.
 - `--considerations <source>` — assess the diff against a task's `security_considerations` list and return a per-consideration mitigated / partial / unmitigated verdict (the surface the stride-codex deep-review integration uses — see below).
 
 Two further customization knobs:

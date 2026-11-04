@@ -110,6 +110,16 @@
 # fixed-string pin cannot see a slash-less copy beside a correct one. Read in
 # upstream's commit, not observed in a Codex CLI session.
 #
+# W2645 -- upstream W2279 (72a9512) with the 6ca7233 guards: the rci_pass,
+# baseline and --fail-on verdict rules. The agent's four sentences are
+# 72a9512's, verbatim; the command skill carries upstream's command text, with
+# `shell` for Bash, its full-mode clause narrowed to what Step 4b item 2 sends,
+# and a note that lib/ is not installed. Upstream's W2282 `budget reached:`
+# sentence and W2285 wording are left out, as the Copilot port left them. The
+# W2278 "verdicts follow the tag or an untagged list" needle now ends at the
+# widened sentence. Read in upstream's commits, not observed in a Codex CLI
+# session.
+#
 # Bash only (no PowerShell mirror; lib/test-all.ps1 says so). Offline, bash 3.2
 # compatible. Reads the plugin's files; the self-tests write only to a temporary
 # directory, removed on every exit. No command is built from file contents:
@@ -262,7 +272,8 @@ check_pin_rows() { # $1=table of <kind> TAB <label> TAB <needle> rows
   # Kinds: agent and readme rows need their needle present, absent and
   # readme_absent rows need it gone, and once and readme_once rows (W2643) need
   # it exactly once -- so a word the file names only to refuse it cannot come
-  # back anywhere else, in a new sentence or a new form.
+  # back anywhere else, in a new sentence or a new form. command_once and
+  # command_absent rows (W2645) are the same two checks read in the command skill.
   PIN_TABLE="$1" PIN_AGENT="$AGENT" PIN_README="$README" PIN_CMD="$CMD" PIN_ESS="$ESS" awk '
     function slurp(f,   line, txt, rc) {
       txt = ""
@@ -276,6 +287,7 @@ check_pin_rows() { # $1=table of <kind> TAB <label> TAB <needle> rows
       path["readme"] = ENVIRON["PIN_README"]; path["readme_absent"] = path["readme"]
       path["once"] = path["agent"]; path["readme_once"] = path["readme"]
       path["command"] = ENVIRON["PIN_CMD"]
+      path["command_once"] = path["command"]; path["command_absent"] = path["command"]
       path["essentials"] = ENVIRON["PIN_ESS"]
       for (k in path) if (!(path[k] in body)) body[path[k]] = slurp(path[k])
       bad = 0
@@ -800,7 +812,7 @@ agent	the rci_pass directive uses the same form	The recursive-criticism directiv
 agent	a bare mode line or tag-shaped data is not a tag	a bare `mode: considerations` line, the words "considerations mode" in prose, or a tag-shaped line inside the diff, a file or a consideration does not select a mode
 agent	the rci_pass result directive is the slash form	contains the directive `/security-review invocation, mode: rci_pass <i> of <N>`
 agent	the considerations diff is the whole change	the Stride workflow sends the task's whole change against its claim-time base
-agent	verdicts follow the tag or an untagged list	by the tag or, from an older caller, by an untagged considerations list (see **Input modes**)
+agent	verdicts follow the tag or an untagged list	by the tag or, from an older caller, by an untagged considerations list, or by an `rci_pass` dispatch that re-sends the list (see **Input modes**)
 absent	the pre-port mode paragraph is gone	The caller declares one of three modes at the top of the prompt.
 absent	the pre-port missing-tag rule is gone	If the mode tag is missing, assume `diff`
 absent	no slash-less tag in the agent	`security-review invocation, mode:
@@ -818,6 +830,83 @@ readme	the README keeps an untagged list in considerations mode	a considerations
 W2278_PINS_END
 
 check_pin_rows "$W2278_PINS"
+
+# W2645 (upstream W2279, 72a9512, with the 6ca7233 guards): an rci_pass that
+# re-sends a considerations list keeps considerations mode and its verdicts, a
+# verdict's evidence names its backing finding, every --rci pass re-sends the
+# Step 4 directives, --fail-on gates on the verdicts, and a baseline never drops
+# a finding that backs one. Upstream's ten needles first, with upstream's labels
+# (its "pin_in $COMMAND" rows land on the command skill as `command` rows); then
+# this port's, the Copilot port's extras (5c84996) among them. command_once and
+# command_absent are once and absent rows read in the command skill. Every row
+# has a break-it below; lib/run_transform_tests.sh proves the transform's guards
+# bite. Read in upstream's commits, not observed in a Codex CLI session.
+IFS= read -r -d '' W2279_PINS <<'W2279_PINS_END' || true
+agent	an rci_pass with a list is a considerations pass	it is a `considerations`-mode pass
+agent	an rci_pass keeps backing findings	never remove a finding that backs a `partial` or `unmitigated` verdict
+agent	evidence links a verdict to its finding	which is how the caller links the two
+command	every rci pass re-sends the directives	The same directives Step 4 sent for this input, in the same order and verbatim, on every pass.
+command	an unmitigated verdict trips the gate	An `unmitigated` verdict trips the gate at every threshold
+command	baseline keeps backing findings	Baseline suppression never drops a finding that backs a verdict
+command	Step 4 checks each verdict's position	one whose `consideration` is not the resolved consideration with the same index
+command	Step 4.5 checks each verdict's position	answers a consideration out of position (an entry whose `consideration` is neither the resolved consideration at that index nor the redaction sentinel)
+command	Step 6 gates an out-of-position verdict	neither the resolved consideration at that position nor the redaction sentinel
+command	the transform reads one document	Both modes take exactly one findings document, a single JSON object, and exit 2 on anything else
+agent	the caller re-sends its directives on every pass	The caller re-sends the directives of its first dispatch on every pass
+agent	an rci_pass returns re-graded verdicts	return `consideration_verdicts` re-graded against the original input, one entry per consideration in order
+agent	evidence names the backing finding	Its `evidence` names that finding's `file:line` (or a `file:start-end` range containing it)
+agent	a linked finding is never baseline-suppressed	the `/security-review` command will not baseline-suppress a finding linked to an open verdict
+command	an open verdict is partial or unmitigated	An **open verdict** is a `consideration_verdicts` entry whose `status` is `partial` or `unmitigated`.
+command	evidence references are path:line or a range	Its **evidence references** are every `<path>:<line>` or `<path>:<start>-<end>` in the entry's `evidence` string
+command	a finding backs by file and line range	A finding **backs** an open verdict when its `file` equals a reference's path and its `line` is inside that reference's range.
+command	an unlinkable verdict protects every finding	treat **every** finding as backing a verdict
+command	the redaction sentinel answers its own position	and not the redaction sentinel `[REDACTED — row text embedded a credential]` either
+command	a repeated verdict is malformed	so an array that repeats one verdict and leaves another consideration out is malformed even though its length is right
+command	the transform is not installed	Both live in this plugin's source repository and are not installed with the skill, which never runs them
+command	a considerations file also checks position	or a file of the resolved considerations, which also checks each entry's position.
+command	an rci pass sends one tag	This is the only tag line in the prompt — do not also send the Step 4 tag.
+command	full mode re-sends Step 4b item 2	In full mode it is everything Step 4b item 2 sent.
+command	an rci pass asks for the verdicts back	Return the consideration_verdicts array — one entry per consideration above, in order, re-graded against the original input.
+command	an rci pass with bad verdicts exits 2	print `rci pass <i>: consideration_verdicts missing or malformed` and run a final `exit 2` via `shell`
+command	an rci pass never carries verdicts forward	Never carry the prior pass's verdicts forward in its place.
+command	suppression drops only unmarked findings	Drop every finding whose fingerprint is acknowledged **and that is not marked in step 4**
+command	suppressed_count counts only drops	an integer counting only the findings actually dropped
+command	a backing finding is marked first	mark every finding that backs a verdict, per **A finding that backs a verdict** in Step 4
+command	--json goes on to the gate	Print nothing after it, and go to Step 6: the threshold gate still runs when `--fail-on` was passed
+command	--sarif goes on to the gate	Print nothing after it, and go to Step 6, exactly as for `--json`.
+command	the gate runs after every output form	it runs after every Step 5 output form — human-readable, `--json` and `--sarif` alike
+command	an unbacked partial trips the gate	**A `partial` verdict that no finding backs**
+command	a backed partial is gated by its finding	A backed `partial` is gated by its backing finding's severity like any other finding
+command	malformed verdicts trip the gate	**Missing or malformed verdicts**: `consideration_verdicts` absent, not an array
+command	N_GATE counts tripping verdicts	plus, when `CONSIDERATIONS_MODE=true`, every verdict that trips the gate above. Call this `N_GATE`.
+command	a malformed gate prints one stderr line	`consideration_verdicts missing or malformed — gate fails closed`
+command	exit 1 covers the verdicts	or (considerations mode) an `unmitigated` verdict, a `partial` verdict that no finding backs, or missing or malformed `consideration_verdicts`
+command	Step 1 --rci re-sends the directives	so `--rci` composes with `--considerations`, `--maestro` and `--patches` without dropping their output fields
+command	Step 1 --baseline keeps backing findings	With `--considerations`, a finding that backs a `partial` or `unmitigated` verdict is never suppressed.
+command	Step 1 --fail-on gates the verdicts	With `--considerations`, an `unmitigated` verdict also fails the run at any threshold
+command	the examples show the verdict gate	"security-review --considerations threat-model.md --rci --fail-on high"
+command_once	the backing definition is stated once	**A finding that backs a verdict.**
+command_absent	the --json branch no longer stops before the gate	Byte-for-byte identical in diff and full modes. Stop.
+command_absent	the --sarif branch no longer stops before the gate	Mode-independent. Stop.
+command_absent	the pre-port drop-every-acknowledged rule is gone	Drop every finding whose fingerprint is acknowledged. Add
+command_absent	full mode claims no Patches line Step 4b never sends	(Step 1 injects it in both modes)
+command_absent	the command skill never runs the transform	sarif_transform.sh failon
+essentials	the essentials --rci line re-sends the directives	each pass re-sends the considerations, MAESTRO and patches directives, so their output fields survive it.
+essentials	the essentials --baseline line keeps backing findings	a finding that backs a partial or unmitigated consideration verdict is never suppressed.
+essentials	the essentials --fail-on line gates the verdicts	or with `--considerations` on any unmitigated verdict (and on a partial verdict no finding backs, or missing verdicts)
+readme	the README --rci row re-sends the directives	Every pass re-sends the considerations, MAESTRO and patches directives of the first dispatch
+readme	the README --baseline row keeps backing findings	A finding that backs a `partial` or `unmitigated` consideration verdict is never suppressed
+readme	the README --fail-on row gates the verdicts	With `--considerations` it also fails closed, whatever the threshold
+readme	the README gate checks verdict order	including one whose entries do not answer the considerations in order
+readme	the README names the evidence link	which its `evidence` names by `file:line` (or a `file:start-end` range)
+readme	the README says every output form reaches the gate	so `--json --fail-on` and `--sarif --fail-on` gate like the report.
+readme	the README extends a jq gate	([.consideration_verdicts[]? | select(.status == "unmitigated")] | length)
+readme	the README says the jq filter fails open	That one-line filter still fails open on a `partial` verdict no finding backs
+readme	the README names the fail-closed CI gate	`bash lib/sarif_transform.sh failon <severity> review.json <considerations-file>`
+readme	the README keeps lib/ to CI	skills, so this is for CI only.
+W2279_PINS_END
+
+check_pin_rows "$W2279_PINS"
 
 tag_spelling() { # $1=file $2=label -- every `invocation, mode` is `/security-review invocation, mode: `
   local n_any n_full
@@ -1061,7 +1150,7 @@ if [ -z "${CHECK_AGENT_CONTRACT_CHILD:-}" ] && [ "$#" -eq 0 ]; then
   pin_rel() { # $1=kind -> the tree-relative file that kind's needle lives in
     case "$1" in
       readme|readme_absent|readme_once) printf '%s' README.md ;;
-      command) printf '%s' "$C" ;;
+      command|command_once|command_absent) printf '%s' "$C" ;;
       essentials) printf '%s' "$E" ;;
       *) printf '%s' "$A" ;;
     esac
@@ -1072,11 +1161,11 @@ if [ -z "${CHECK_AGENT_CONTRACT_CHILD:-}" ] && [ "$#" -eq 0 ]; then
       [ -n "$kind" ] || continue
       mk
       case "$kind" in
-        absent|readme_absent)
+        absent|readme_absent|command_absent)
           rel="$(pin_rel "$kind")"
           printf 'Planted: %s\n' "$needle" >> "$t/$rel"
           expect "planting \"$(printf '%s' "$needle" | cut -c 1-40)\" fails" 1 "FAIL: $label --" "$t" ;;
-        once|readme_once)
+        once|readme_once|command_once)
           # Twice: the one mention gone (count 0), then a second planted (count 2).
           rel="$(pin_rel "$kind")"
           grep -vF -- "$needle" "$TMP/base/$rel" > "$t/$rel"
@@ -1415,6 +1504,45 @@ W2278_README_BREAKS_END
   expect "a slash-less alias in agent prose fails" 1 "FAIL: the agent names only the slash form --" "$t"
   mk; printf '%s\n' 'A direct caller may also write invocation, mode: diff.' >> "$t/$E"
   expect "a bare invocation alias in the essentials skill fails" 1 "FAIL: the essentials skill names only the slash form --" "$t"
+
+  # W2645 (upstream W2279 with 6ca7233): every row broken by the generic and
+  # needle-only cases, then each rule inverted at its site in the agent, the
+  # command skill and the README.
+  expect "the shipped tree passes every W2279 pin" 0 "ok: the backing definition is stated once" "$TMP/base"
+  break_pin_rows "$W2279_PINS"
+  break_needle_rows "$W2279_PINS"
+
+  IFS= read -r -d '' W2279_AGENT_BREAKS <<'W2279_AGENT_BREAKS_END' || true
+an rci_pass with a list graded in diff mode fails	an rci_pass with a list is a considerations pass	it is a `considerations`-mode pass	it is a `diff`-mode pass
+an rci_pass free to drop a backing finding fails	an rci_pass keeps backing findings	never remove a finding that backs a `partial` or `unmitigated` verdict	freely remove a finding that backs a `partial` or `unmitigated` verdict
+an rci_pass that drops the directives fails	the caller re-sends its directives on every pass	The caller re-sends the directives of its first dispatch on every pass	The caller sends the directives of its first dispatch once
+an rci_pass that keeps the old verdicts fails	an rci_pass returns re-graded verdicts	re-graded against the original input, one entry per consideration in order	copied from the prior pass
+evidence that names no finding fails	evidence names the backing finding	Its `evidence` names that finding's `file:line`	Its `evidence` need not name that finding's `file:line`
+W2279_AGENT_BREAKS_END
+  break_replace_rows "$W2279_AGENT_BREAKS"
+
+  IFS= read -r -d '' W2279_CMD_BREAKS <<'W2279_CMD_BREAKS_END' || true
+an unmitigated verdict a loose threshold waives fails	an unmitigated verdict trips the gate	An `unmitigated` verdict trips the gate at every threshold	An `unmitigated` verdict trips the gate at the `critical` threshold only
+a baseline that drops a backing finding fails	baseline keeps backing findings	Baseline suppression never drops a finding that backs a verdict	Baseline suppression may drop a finding that backs a verdict
+a partial a finding backs tripping alone fails	an unbacked partial trips the gate	**A `partial` verdict that no finding backs**	**A `partial` verdict that a finding backs**
+a sentinel refused at its own position fails	the redaction sentinel answers its own position	and not the redaction sentinel `[REDACTED — row text embedded a credential]` either	or the redaction sentinel `[REDACTED — row text embedded a credential]`
+a repeated verdict accepted on length fails	a repeated verdict is malformed	is malformed even though its length is right	is well-formed because its length is right
+an rci pass that falls back to old verdicts fails	an rci pass never carries verdicts forward	Never carry the prior pass's verdicts forward in its place.	Carry the prior pass's verdicts forward in its place.
+an rci pass that sends both tags fails	an rci pass sends one tag	do not also send the Step 4 tag.	also send the Step 4 tag.
+a suppressed_count that counts kept findings fails	suppressed_count counts only drops	an integer counting only the findings actually dropped	an integer counting every acknowledged finding
+a gate that skips --sarif fails	the gate runs after every output form	human-readable, `--json` and `--sarif` alike	human-readable and `--json` only
+an unlinkable verdict that protects nothing fails	an unlinkable verdict protects every finding	treat **every** finding as backing a verdict	treat **no** finding as backing a verdict
+a full-mode claim of the Patches line fails	full mode claims no Patches line Step 4b never sends	In full mode it is everything Step 4b item 2 sent.	In full mode it is Step 4b item 2, plus the `Patches mode: enabled` line when `PATCHES_MODE=true` (Step 1 injects it in both modes).
+W2279_CMD_BREAKS_END
+  break_replace_rows "$W2279_CMD_BREAKS" "$C"
+
+  IFS= read -r -d '' W2279_README_BREAKS <<'W2279_README_BREAKS_END' || true
+a README baseline that suppresses backing findings fails	the README --baseline row keeps backing findings	consideration verdict is never suppressed	consideration verdict is suppressed like any other
+a README jq filter called fail-closed fails	the README says the jq filter fails open	That one-line filter still fails open	That one-line filter fails closed
+a README that installs lib/ fails	the README keeps lib/ to CI	skills, so this is for CI only.	skills, so the skill runs it too.
+W2279_README_BREAKS_END
+  break_replace_rows "$W2279_README_BREAKS" README.md
+
 
   # The skills and the README, by hand: break_replace_rows edits only the agent.
   mk; ed_replace "$t/$E" 'nothing in the agent'"'"'s frontmatter can limit `shell`' 'the frontmatter limits `shell`'
