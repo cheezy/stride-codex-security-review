@@ -20,6 +20,8 @@
                                 its copy step against scratch repositories whose
                                 own config names marker programs (skips on a
                                 git older than 2.44)
+      - check_install.sh        both installers run from a local scratch
+                                clone, every pack and mode file compared
     and reports it as SKIPPED when either is absent. The live-agent eval (run_eval.sh,
     needs a Codex model) is a separate step. No network.
 
@@ -40,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 
 $PsTests = @('test-structure.ps1', 'test-frontmatter.ps1')
 $BashTests = @('run_transform_tests.sh', 'check_fixtures.sh', 'check_eval_invocation.sh')
-$BashGitTests = @('check_git_hardening.sh')
+$BashGitTests = @('check_git_hardening.sh', 'check_install.sh')
 
 $ran = 0
 $failed = 0

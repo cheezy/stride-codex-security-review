@@ -282,6 +282,46 @@ detect_lang() {
   esac
 }
 
+# emit_rule_blocks <fixture-abs-path> <with-considerations: 0|1>
+# W2636 (upstream W2285): the agent is a core that never reads a rule file
+# itself; the stride-security-review skill sends its packs and mode files in
+# keyed blocks. The eval sends all eleven packs, in the core's table order, so
+# every fixture is scored against the full rule set the pre-split agent carried
+# in its prompt, then modes/considerations.md in considerations mode and
+# modes/reproduction.md, as the skill does. Never modes/result-file.md: the eval
+# supplies no SECURITY_RESULT_PATH. The key is sixteen hex digits from
+# /dev/urandom, made again if the fixture holds it. A file that cannot be read
+# is left out with a `rule file not sent: <name>` line on stderr, and the run
+# goes on, so the agent reviews with its core rules for that fixture.
+EVAL_RULES_DIR="${EVAL_RULES_DIR:-$ROOT_DIR/skills/stride-security-review}"
+EVAL_PACKS="packs/android.md packs/django.md packs/express.md packs/ios.md packs/phoenix.md packs/rails.md packs/react-nextjs.md packs/web-defense.md packs/supply-chain.md packs/ci-cd.md packs/agentic.md"
+emit_rule_blocks() {
+  local abs="$1" cons="$2" key="" tries=0 name names
+  while [ "$tries" -lt 5 ]; do
+    key="$(od -An -tx1 -N8 /dev/urandom | tr -d ' \n')"
+    tries=$((tries + 1))
+    [ "${#key}" -eq 16 ] && ! grep -qF -- "$key" "$abs" && break
+    key=""
+  done
+  names="$EVAL_PACKS"
+  [ "$cons" -eq 1 ] && names="$names modes/considerations.md"
+  names="$names modes/reproduction.md"
+  if [ -z "$key" ]; then
+    for name in $names; do printf 'rule file not sent: %s\n' "$name" >&2; done
+    return 0
+  fi
+  printf 'Rule-file key: %s\n\n' "$key"
+  for name in $names; do
+    if [ -f "$EVAL_RULES_DIR/$name" ] && [ -s "$EVAL_RULES_DIR/$name" ] && [ -r "$EVAL_RULES_DIR/$name" ]; then
+      printf '<<<STRIDE RULE FILE %s %s>>>\n' "$name" "$key"
+      cat "$EVAL_RULES_DIR/$name"
+      printf '<<<END STRIDE RULE FILE %s %s>>>\n\n' "$name" "$key"
+    else
+      printf 'rule file not sent: %s\n' "$name" >&2
+    fi
+  done
+}
+
 # build_prompt <fixture-rel-path>
 # Constructs the user-side prompt for the security-reviewer agent. Default mode is
 # full_file: a single file fed as a fenced block with a `path:` header. A fixture
@@ -306,7 +346,9 @@ build_prompt() {
       while IFS= read -r c || [ -n "$c" ]; do
         [ -n "$c" ] && printf -- '- %s\n' "$c"
       done < "$cons"
-      printf '\n```diff\n'
+      printf '\n'
+      emit_rule_blocks "$abs" 1
+      printf '```diff\n'
       cat "$abs"
       printf '\n```\n'
       printf '\nRespond with the JSON document specified in your output schema (including the consideration_verdicts array, one entry per consideration above in order) and nothing else.\n'
@@ -317,6 +359,7 @@ build_prompt() {
   local lang
   lang="$(detect_lang "$rel")"
   printf '/security-review invocation, mode: full_file\n\n'
+  emit_rule_blocks "$abs" 0
   printf 'path: %s\n' "fixtures/$rel"
   printf '```%s\n' "$lang"
   cat "$abs"

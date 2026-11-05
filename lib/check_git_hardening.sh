@@ -39,8 +39,9 @@
 # pins.
 #
 # Usage:
-#   bash lib/check_git_hardening.sh [agent-file] [readme-file]
-#   (defaults: agents/security-reviewer.md and README.md beside this lib/)
+#   bash lib/check_git_hardening.sh [reproduction-mode-file] [readme-file]
+#   (defaults: skills/stride-security-review/modes/reproduction.md and
+#    README.md beside this lib/)
 #
 # Exit code: 0 when no marker ran and every control fired (or git is too
 # old); 1 otherwise. Bash 3.2 compatible.
@@ -53,7 +54,9 @@ unset PAGER SSH_ASKPASS
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 ROOT="$SCRIPT_DIR/.."
-AGENT="${1:-$ROOT/agents/security-reviewer.md}"
+# W2636: the probe block moved from the agent core into the reproduction mode
+# file the command skill sends.
+AGENT="${1:-$ROOT/skills/stride-security-review/modes/reproduction.md}"
 README="${2:-$ROOT/README.md}"
 fail=0
 

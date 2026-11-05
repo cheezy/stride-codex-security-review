@@ -39,7 +39,9 @@ directly:
   Runs in one of three modes — `diff`, `full_file`, or `considerations`. Read-only
   on the working tree (`read`, `search`, `glob`, `shell`), apart from the one result
   file a caller names with `SECURITY_RESULT_PATH`; a reproduction runs only in a
-  sandboxed temporary copy outside the repository.
+  sandboxed temporary copy outside the repository. Its framework packs and the full
+  rules of three modes are files beside the `stride-security-review` command-skill,
+  which sends them in keyed blocks; dispatched without them, it uses its core rules.
 
 ## Workflow Sequence
 

@@ -45,6 +45,11 @@ On Windows (PowerShell), run the equivalent `install.ps1`:
 irm https://raw.githubusercontent.com/cheezy/stride-codex-security-review/main/install.ps1 | iex
 ```
 
+Both installers copy each skill's `SKILL.md`, the `stride-security-review` skill's
+`packs/` and `modes/` rule files beside it (regular `.md` files only, never a link),
+and `agents/*.md`. `lib/check_install.sh` runs them from a local scratch clone and
+checks every rule file lands.
+
 ### Marketplace CLI
 
 Alternatively, install through the Codex plugin marketplace:
@@ -97,6 +102,8 @@ severity-grouped findings.**
 - **`stride-security-review`** — the end-to-end operation. Parses its flags, gathers
   the input (a diff or a filtered file set), dispatches the `security-reviewer` agent
   (once in diff mode; batched in groups of ~10 in full mode), and renders the findings.
+  Beside its `SKILL.md` it carries the agent's eleven rule packs (`packs/`) and three
+  mode files (`modes/`), which it sends to the agent in each dispatch.
   Its full flag surface:
 
   | Flag | Effect |
@@ -158,6 +165,23 @@ alone):
   pack (unpinned actions, over-broad permissions, fork-PR secret exposure, expression
   injection).
 
+The packs, and the full rules of three modes (considerations, result file and
+reproduction), are files beside the `stride-security-review` command skill, in its
+`packs/` and `modes/` directories, not in the agent's prompt. The agent is a core that
+never reads a rule file itself: Codex documents no path by which an agent's
+instructions reach an installed file, so the skill picks the packs from the reviewed
+files' paths, extensions, structure and imports and sends each file verbatim in a
+keyed block. An agent dispatched directly, without them, reviews with its core rules
+alone, writes no result file and runs no reproduction. To add a pack, write
+`packs/<name>.md` beside the others with an activation that needs a file extension
+**and** an import or identifier signal, four to six rules mapped to existing
+`vulnerability_class` values, and any prior-art SAST tool as context only (Sobelow,
+Brakeman, Bandit, gosec, eslint-plugin-security); then add its row to the tables in
+the agent's **Rule packs and mode files** and the skill's **Rule files**, which must
+stay equal, to `RULE_NAMES` in `lib/check_agent_contract.sh` and
+`lib/check_install.sh`, and to the eval's lists: `EVAL_PACKS` in `lib/run_eval.sh`
+and the `names` list in `lib/check_eval_invocation.sh`'s blocks check.
+
 For codebases that wire LLMs / AI agents / MCP clients into the request flow, five
 **MAESTRO agentic** classes activate when a file imports a recognized LLM/agent/MCP
 SDK: prompt injection, tool abuse, agent trust boundary, model output execution, and
@@ -182,7 +206,10 @@ The agent returns a single fenced ```json document. A caller that dispatches the
 `security-reviewer` agent itself, such as the Stride workflow's deep security review,
 can keep that document out of its own context by giving the agent one line of its own
 in the dispatch instructions. The `stride-security-review` command skill never
-supplies it.
+supplies it. Such a caller must also send `modes/result-file.md` from the skill's
+directory in a keyed rule-file block (the agent's **Rule packs and mode files** gives
+the form); without it the agent writes nothing and replies `result: NOT WRITTEN — …`
+with the full document inline.
 
 Such a caller opens its prompt with the agent's one mode tag, on its own line:
 `/security-review invocation, mode: <mode>` (`diff`, `considerations` or `full_file`).
@@ -235,7 +262,10 @@ Each fixture runs from an empty scratch directory outside any Git repository, so
 - `--skip-git-repo-check` and `--cd <scratch dir>`, with the scratch directory also the working directory;
 - `--sandbox read-only`, `-c approval_policy="never"`, and the shell tool, web search, subagents and image viewing turned off with `-c` overrides;
 - `--ignore-user-config`, so no MCP servers or settings from your `config.toml`, and `--ephemeral`, so no session files are saved;
-- the prompt on stdin (`-`).
+- the prompt on stdin (`-`), carrying all eleven packs, `modes/considerations.md` in
+  considerations mode and `modes/reproduction.md` in keyed rule-file blocks, as the
+  command skill sends them, so each fixture is scored against the full rule set
+  (`EVAL_RULES_DIR` overrides where they are read).
 
 With the shell tool off and an empty scratch directory, the eval never exercises the agent's read scope, and it checks verdicts and whether a finding exists — not redaction, `note` text, or a finding's severity — so those are checked by hand in `logs/` where a row says so.
 

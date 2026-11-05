@@ -223,6 +223,37 @@ check "the prompt is in considerations mode"          test "$(sed -n 1p "$TMP/re
 check "the full_file prompt opens with the tag"       contains "$RUN_EVAL" "printf '/security-review invocation, mode: full_file\n\n'"
 check "the fixture's diff reaches stdin byte for byte" python3 -I -c 'import sys; sys.exit(0 if open(sys.argv[1],"rb").read() in open(sys.argv[2],"rb").read() else 1)' "$ROOT_DIR/fixtures/$FIXTURE" "$TMP/rec-fake/stdin"
 check "the fixture's text is never in argv"           lacks "$ARGV" "request.args"
+# W2636 (upstream W2285): the core reads no rule file, so the eval sends every
+# pack and the considerations and reproduction mode files in keyed blocks, as
+# the stride-security-review skill does, and never the result-file mode.
+cat > "$TMP/blocks_check.py" <<'BLOCKS_CHECK_END'
+import re,sys
+# argv: mode(key|blocks|order|noresult) stdin rules_dir
+mode,stdin,rules=sys.argv[1],sys.argv[2],sys.argv[3]
+t=open(stdin,'rb').read().decode('utf-8')
+keys=re.findall(r'^Rule-file key: ([0-9a-f]{16})$',t,re.M)
+if mode=='key': sys.exit(0 if len(keys)==1 and len(re.findall(r'^Rule-file key:',t,re.M))==1 else 1)
+if mode=='noresult': sys.exit(0 if 'modes/result-file.md' not in t else 1)
+if len(keys)!=1: sys.exit(1)
+k=keys[0]
+names='packs/android.md packs/django.md packs/express.md packs/ios.md packs/phoenix.md packs/rails.md packs/react-nextjs.md packs/web-defense.md packs/supply-chain.md packs/ci-cd.md packs/agentic.md modes/considerations.md modes/reproduction.md'.split()
+if mode=='blocks':
+    for n in names:
+        o='<<<STRIDE RULE FILE %s %s>>>\n'%(n,k); c='<<<END STRIDE RULE FILE %s %s>>>\n'%(n,k)
+        if t.count(o)!=1 or t.count(c)!=1: sys.exit(1)
+        body=t[t.index(o)+len(o):t.index(c)]
+        if body!=open(rules+'/'+n,encoding='utf-8').read(): sys.exit(1)
+    sys.exit(0)
+if mode=='order':
+    first=t.find('<<<STRIDE RULE FILE ')
+    sys.exit(0 if 0 <= first < t.find('```diff\n') and t.find('Rule-file key:') < first else 1)
+sys.exit(2)
+BLOCKS_CHECK_END
+RULES_SRC="$ROOT_DIR/skills/stride-security-review"
+check "the prompt carries one Rule-file key line"     python3 -I "$TMP/blocks_check.py" key "$TMP/rec-fake/stdin" "$RULES_SRC"
+check "the prompt sends every pack and mode file verbatim" python3 -I "$TMP/blocks_check.py" blocks "$TMP/rec-fake/stdin" "$RULES_SRC"
+check "the rule-file blocks come before the diff"     python3 -I "$TMP/blocks_check.py" order "$TMP/rec-fake/stdin" "$RULES_SRC"
+check "the prompt never sends the result-file mode"   python3 -I "$TMP/blocks_check.py" noresult "$TMP/rec-fake/stdin" "$RULES_SRC"
 check "the CLI's stderr is kept in .err.txt"          contains "$TMP/logs-fake/considerations_token_logging_unmitigated_diff.err.txt" "progress goes to stderr"
 
 # --- 3. an API key is accepted and never printed ------------------------------
@@ -285,7 +316,7 @@ check "a row with no AND clause parses with U"        contains "$TMP/umark.out" 
 # glob of the root, so a local untracked file is never copied.
 copy_tree() {
   mkdir -p "$1"
-  cp -R "$ROOT_DIR/lib" "$ROOT_DIR/agents" "$ROOT_DIR/fixtures" "$ROOT_DIR/README.md" "$1/"
+  cp -R "$ROOT_DIR/lib" "$ROOT_DIR/agents" "$ROOT_DIR/skills" "$ROOT_DIR/fixtures" "$ROOT_DIR/README.md" "$1/"
 }
 if [ -z "${CHECK_EVAL_INVOCATION_CHILD:-}" ]; then
   # break_it <label> <ERE of the run_eval.sh line to delete> <FAIL needle>
@@ -410,6 +441,17 @@ open(p, "w", encoding="utf-8").write(s.replace(old, new))' "$t/lib/run_eval.sh" 
     '[ -f "$AGENT_FILE" ] || die "agent file not found' '[ -f "$AGENT_FILE" ] || : "agent file not found' "a missing agent file exits 2"
   break_sub "admitting a missing CLI fails" \
     'command -v "$CODEX_CLI" >/dev/null 2>&1 || die' 'command -v "$CODEX_CLI" >/dev/null 2>&1 || :' "a missing CLI says so"
+  break_sub "dropping the Rule-file key line fails" \
+    "  printf 'Rule-file key: %s\\n\\n' \"\$key\"" "  :" "the prompt carries one Rule-file key line"
+  break_sub "sending a rule file edited fails" \
+    '      cat "$EVAL_RULES_DIR/$name"' '      head -c 40 "$EVAL_RULES_DIR/$name"' "the prompt sends every pack and mode file verbatim"
+  break_sub "sending the blocks after the diff fails" \
+    "      printf '\\n'
+      emit_rule_blocks \"\$abs\" 1
+      printf '\`\`\`diff\\n'" "      printf '\\n\`\`\`diff\\n'
+      emit_rule_blocks \"\$abs\" 1" "the rule-file blocks come before the diff"
+  break_sub "sending the result-file mode fails" \
+    '  names="$names modes/reproduction.md"' '  names="$names modes/reproduction.md modes/result-file.md"' "the prompt never sends the result-file mode"
   break_sub "truncating the fixture in the prompt fails" \
     '      cat "$abs"' '      head -c 20 "$abs"' "the fixture's diff reaches stdin byte for byte"
   break_sub "skipping the sidecar check fails" \
