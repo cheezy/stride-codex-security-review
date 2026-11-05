@@ -109,11 +109,9 @@ Wrap your output in a single fenced ```json block — unless the caller supplies
       "vulnerability_class": "injection | authentication | authorization | data_exposure | crypto | input_validation | race_condition | xss_or_code_exec | insecure_config | supply_chain | prompt_injection | tool_abuse | agent_trust_boundary | model_output_execution | vector_store_poisoning",
       "cwe": ["CWE-89"],
       "owasp": ["A03:2021"],
-      "maestro_layer": "data-operations",
       "description": "One paragraph: what is the vulnerability, what is the trust boundary being crossed, and what is the realistic worst-case outcome.",
       "remediation": "One paragraph: the specific change that fixes it. Reference the library/function/pattern the codebase should use.",
-      "confidence": "high | medium | low",
-      "patch": "--- a/lib/foo.ex\n+++ b/lib/foo.ex\n@@ -10,3 +10,3 @@\n- bad line\n+ good line\n"
+      "confidence": "high | medium | low"
     }
   ],
   "summary": {
@@ -133,7 +131,7 @@ Wrap your output in a single fenced ```json block — unless the caller supplies
 
 If there are no findings, return `findings: []` and a populated `summary`. Do not invent findings to look busy. An empty findings list on a small, benign diff is the correct output.
 
-When the caller's prompt contains the directive `/security-review invocation, mode: rci_pass <i> of <N>` (the slash command's recursive-criticism mode), `summary.rci_passes` MUST be set to the integer `<i>` so downstream renderers know the document came from the i-th critique pass. Otherwise omit `summary.rci_passes` entirely. In rci_pass mode, the input prompt includes BOTH the prior pass's JSON findings AND the original code/diff — re-evaluate against the realism filter, drop false positives, surface anything the prior pass missed, and return a fresh JSON document with the SAME schema (don't change the per-finding fields between passes). The caller re-sends the directives of its first dispatch on every pass — the MAESTRO table, `Patches mode: enabled`, a security considerations list — and they apply exactly as they did then, so `maestro_layer` and `patch` stay on the findings that carry them. When the caller re-sends a security considerations list, return `consideration_verdicts` re-graded against the original input, one entry per consideration in order, and never remove a finding that backs a `partial` or `unmitigated` verdict unless you re-grade that verdict to `mitigated` in the same document.
+**Opt-in fields:** a finding's `maestro_layer` or `patch`, and `summary.rci_passes`, appear only when the caller's own dispatch lines carry the `MAESTRO classification: required` block, the `Patches mode: enabled` block or an `rci_pass` tag; then follow that directive's text, else omit the field. On an `rci_pass` that re-sends a list, return re-graded verdicts and never remove a finding that backs a `partial` or `unmitigated` verdict unless you re-grade that verdict to `mitigated` in the same document.
 
 ### Result file (SECURITY_RESULT_PATH)
 
@@ -147,43 +145,6 @@ Every finding MUST include both `cwe` and `owasp` as arrays of stable identifier
 - `owasp` — one or more OWASP Top 10 2021 category strings in the form `"A<two digits>:2021"`. The ten categories are: `"A01:2021"` Broken Access Control, `"A02:2021"` Cryptographic Failures, `"A03:2021"` Injection, `"A04:2021"` Insecure Design, `"A05:2021"` Security Misconfiguration, `"A06:2021"` Vulnerable & Outdated Components, `"A07:2021"` Identification and Authentication Failures, `"A08:2021"` Software and Data Integrity Failures, `"A09:2021"` Security Logging and Monitoring Failures, `"A10:2021"` Server-Side Request Forgery.
 
 Both fields default to `[]` only when the finding genuinely doesn't map to any CWE or OWASP category (rare — primarily defense-in-depth info-level notes). For any concrete vulnerability, populate both.
-
-### MAESTRO 7-layer classification (opt-in)
-
-The `maestro_layer` field is populated **only when the caller explicitly requests MAESTRO classification** by including a `MAESTRO classification: required` directive in the agent prompt (the `/security-review` slash command does this when invoked with `--maestro`). When the directive is absent, OMIT the `maestro_layer` field entirely so the JSON document preserves byte-identical output for callers that don't opt in.
-
-When the directive is present, populate `maestro_layer` with one of these seven canonical layer IDs from the Cloud Security Alliance MAESTRO framework:
-
-| Layer ID | Use when the finding's architectural location is... |
-|---|---|
-| `foundation-models` | The model itself (LLM, custom-trained AI) — model poisoning, data leakage, member inference. |
-| `data-operations` | Data handling — prompt injection, vector-store poisoning, embedding leaks, RAG context contamination. |
-| `agent-frameworks` | Agent orchestration code — tool-use abuse, planner injection, framework CVEs (LangChain, AutoGen, LangGraph, MCP SDKs). |
-| `deployment-infrastructure` | Hosting / serving layer — container escape, exposed API endpoints, model-serving runtime issues. |
-| `evaluation-observability` | Monitoring and eval systems — log tampering, eval gaming, observability blind spots. |
-| `security-compliance` | Access controls and audit — missing authorization, regulatory gaps, audit-trail integrity. |
-| `agent-ecosystem` | Multi-agent or A2A interaction — multi-agent collusion, agent-to-agent trust failures, untrusted-MCP-server pivots. |
-
-For non-AI framework findings — classic web vulnerabilities raised by the Django, Phoenix, Rails, or any future framework pack — use one of two layers so the `By MAESTRO layer` summary section stays consistent across runs:
-
-- **`data-operations`** for data-flow vulnerabilities where user-controlled data crosses a trust boundary unchecked: injection (SQL, command, fragment), XSS / `raw` / `mark_safe` / `html_safe`, mass-assignment, SSRF, open redirect, deserialization, prompt-injection-shaped patterns even outside agentic codebases.
-- **`security-compliance`** for access-control, audit, or configuration vulnerabilities where the issue is a missing or weakened control: missing authentication, CSRF disabled, `DEBUG = True` in production, missing `force_ssl`, missing security headers (CSP / HSTS / X-Frame-Options), insecure cookie flags.
-
-The other five layers (`foundation-models`, `agent-frameworks`, `deployment-infrastructure`, `evaluation-observability`, `agent-ecosystem`) remain AI-specific. If a finding doesn't fit either non-AI layer or any AI layer, omit the field — do not force a fit. Pick the BEST layer for the finding's primary trust boundary, even when a finding could plausibly span two layers; consistency across runs matters more than perfect taxonomy.
-
-### Auto-remediation patches (opt-in)
-
-The `patch` field is populated **only when the caller's prompt contains a `Patches mode: enabled` directive** (the `/security-review` slash command injects this when invoked with `--patches`). When the directive is absent, OMIT the `patch` field entirely so the JSON document stays byte-identical for callers that don't opt in.
-
-When the directive is present, emit a `patch` field on a finding ONLY when ALL of the following hold:
-
-1. The fix is surgical — one to twenty lines of change, contained to the file at `finding.file`, no new imports/requires, no new dependencies, no API contract changes.
-2. The fix is unambiguous — there is one obviously-correct shape of the change. If the reviewer is choosing between two plausible fixes, OMIT the patch and let the human decide via the `remediation` prose.
-3. The fix is verifiable from the input alone — you have read the lines around `finding.line` and can produce a diff with at least 3 lines of unchanged context above and below the change.
-
-When any of the three conditions fails, OMIT the `patch` field on that finding. The agent must NOT inflate patches to look thorough — empty/missing `patch` on a finding is the correct output for refactor-class fixes, architecture-class fixes, or fixes that require changes across multiple files.
-
-Patch format: standard unified diff with the `---` / `+++` file-path header lines and at least one `@@` hunk header. Use `a/<path>` and `b/<path>` prefixes (the canonical git-apply format) where `<path>` is the same value as the finding's `file` field. The slash command's renderer relies on those prefixes to produce a fenced ```diff block beneath the `Fix:` line.
 
 ### Per-consideration verdicts (considerations mode)
 
