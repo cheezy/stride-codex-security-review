@@ -21,7 +21,7 @@
 # every name, so none is renamed: the line is pinned exactly as it ships, and
 # its four names are the only ones any stride-codex agent's tools line uses. That
 # vocabulary is NOT verified against Codex, and none of this was observed in a
-# Codex CLI session (see CHANGELOG [Unreleased]).
+# Codex CLI session (see CHANGELOG [0.2.0]).
 #
 # W2635 -- the SECURITY_RESULT_PATH result file and the bounded summary,
 # ported from upstream W2284 (9d41e46). Upstream writes the file through its
