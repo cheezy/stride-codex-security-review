@@ -1,6 +1,6 @@
 ---
 name: security-review-essentials
-description: Use when about to merge code changes that touch security-sensitive surfaces — authentication, authorization, cryptography, user input handling, secrets management, database queries, shell-outs, file uploads, redirects, or response rendering. Also use before pushing a PR that modifies any of the above, or when a human reviewer asks for a security check. Surfaces the `stride-security-review` command-equivalent skill and the `security-reviewer` agent (Codex has no slash commands — you activate the skill by name). Findings are structured JSON grouped by severity (critical / high / medium / low / info) with semantic — not pattern-match — analysis. Low-impact noise (denial-of-service, rate-limiting, memory-exhaustion) is intentionally filtered out unless it intersects another vulnerability class. Codex CLI edition of the upstream security-review-essentials skill.
+description: Use when about to merge or push a PR with changes touching authentication, authorization, cryptography, user input handling, secrets management, database queries, shell-outs, file uploads, redirects or response rendering, or when a human reviewer asks for a security check. Surfaces the stride-security-review skill, activated by name, and the security-reviewer agent.
 skills_version: 1.0
 ---
 
