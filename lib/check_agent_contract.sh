@@ -839,9 +839,10 @@ check_pin_rows "$W2643_PINS"
 # passed them. git takes any unambiguous prefix of --modified (lib/
 # check_git_hardening.sh runs --modified and --modif) and any single-dash group
 # of short options. This counts words, not substrings: after each ls-files, up
-# to the next backtick, pipe, ;, & or ) or the end of the line, a word counts
-# when it is a prefix of --modified at least --m long (any =value cut off) or a
-# single-dash group holding an m; -- ends the options. --format,
+# to the next backtick, pipe, ;, &, ), ls-files or the end of the line, a word
+# counts when it is a prefix of --modified at least --m long (any =value cut
+# off) or a single-dash group holding an m, with quotes, emphasis and brackets
+# around the word stripped first; -- ends the options. --format,
 # --no-empty-directory, --exclude-standard, --cached, --others and -z never
 # count, and neither does --no-modified, which turns -m off (a self-test checks
 # each). The core with its rule files, and the README, each name exactly one,
@@ -855,9 +856,15 @@ mf_count() { # $@=files -- prints <count> TAB <the words counted>
       while ((i = index(s, "ls-files")) > 0) {
         s = substr(s, i + 8); span = s
         if (match(span, /[`|;&)]/)) span = substr(span, 1, RSTART - 1)
+        # A later ls-files on the line starts its own span; read to it, not
+        # past it, so no word is counted twice.
+        if ((j = index(span, "ls-files")) > 0) span = substr(span, 1, j - 1)
         n = split(span, w, "[ \t]+")
         for (k = 1; k <= n; k++) {
-          tok = w[k]; sub(/[,.:]+$/, "", tok)
+          # Quotes, emphasis and brackets around a word are not part of it,
+          # so an abbreviation quoted for sh -c, or in **bold**, still counts
+          # (\047 is the single quote, which this program cannot spell).
+          tok = w[k]; sub(/^[\047"*_(\[{<]+/, "", tok); sub(/[,.:;!?\047"*_)\]}>]+$/, "", tok)
           if (tok == "--") break
           if (substr(tok, 1, 2) == "--") {
             name = substr(tok, 3); e = index(name, "=")
@@ -1935,13 +1942,14 @@ W2643_README_BREAKS_END
   # first line's words is a modified-files option; every word of the second is.
   printf '%s\n' 'Run `ls-files --format=x --no-empty-directory --exclude-standard --cached --others -z`, `ls-files -- -m` and `ls-files --no-modified`.' > "$TMP/mf-none.md"
   printf '%s\n' '`ls-files -m` `ls-files -tm` `ls-files -mz` `ls-files --m` `ls-files --mo` `ls-files --modif` `ls-files --modified` `ls-files -x*.md`' > "$TMP/mf-all.md"
+  printf '%s\n' "\`sh -c 'git ls-files --modif'\`, **ls-files --modi**, ls-files \"--mo\" and (ls-files -tm)." >> "$TMP/mf-all.md"
   mf_unit() { # $1=label $2=wanted count $3=file
     local got; got="$(mf_count "$3")"
     if [ "$(printf '%s' "$got" | cut -f 1)" = "$2" ]; then echo "ok: self-test: $1"
     else echo "FAIL: self-test: $1 -- counted $(printf '%s' "$got" | cut -f 1), wanted $2:$(printf '%s' "$got" | cut -f 2)"; fail=1; fi
   }
   mf_unit "the modified-files count passes --format, --no-empty-directory, --exclude-standard, --cached, --others, -z, --no-modified and a path after --" 0 "$TMP/mf-none.md"
-  mf_unit "the modified-files count catches -m, -tm, -mz, --m, --mo, --modif, --modified and -x*.md" 8 "$TMP/mf-all.md"
+  mf_unit "the modified-files count catches -m, -tm, -mz, --m, --mo, --modif, --modified and -x*.md, and an abbreviation inside quotes, emphasis or brackets" 12 "$TMP/mf-all.md"
   expect "the shipped tree passes the modified-files count" 0 "ok: the README names a modified-files ls-files option only to refuse it, in any spelling" "$TMP/base"
   expect "the shipped tree passes every W2642 hardening pin" 0 "ok: the skill says the copy is removed on exit" "$TMP/base"
   break_pin_rows "$W2642_HARDEN_PINS"
