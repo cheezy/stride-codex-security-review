@@ -165,6 +165,13 @@
 # picks the skills and the agent from the trimmed text is not observed: Codex
 # CLI is not installed where this port was made.
 #
+# W2668 -- the W2643 follow-up: ls-files' modified-files option is refused in
+# every spelling. once and readme_once rows pin --modified, agent and readme
+# rows pin the sentences that refuse it, and a word-level count (not a
+# substring search) requires exactly one modified-files option after ls-files
+# in the core with its rule files and in the README: the one each refuses.
+# lib/check_git_hardening.sh shows git takes --modified and --modif.
+#
 # Bash only (no PowerShell mirror; lib/test-all.ps1 says so). Offline, bash 3.2
 # compatible. Reads the plugin's files; the self-tests write only to a temporary
 # directory, removed on every exit. No command is built from file contents:
@@ -806,6 +813,8 @@ once	the agent names --textconv only to refuse it	--textconv
 once	the agent names --show-signature only to refuse it	--show-signature
 once	the agent names a %G placeholder only to refuse it	%G
 once	the agent names ls-files -m only to refuse it	ls-files -m
+once	the agent names --modified only to refuse it	--modified
+agent	the agent refuses --modified, its abbreviations and an m in a short-option group	The same holds for `--modified`, the long form of that `-m`, for every abbreviation of it git accepts, from `--m` up, and for any short-option group holding an `m`, such as `-tm`; refuse even an `-x` pattern with an `m` in it.
 once	the agent names diff-index only to refuse it	diff-index
 absent	the agent lists no diff-index -p form, flagged or not	diff-index -p
 repro	the prose names the partial clone's lazy fetch	and no lazy fetch from a partial clone's promisor remote, outside the box and with your full environment
@@ -813,6 +822,8 @@ readme_once	the README names --ext-diff only to refuse it	--ext-diff
 readme_once	the README names --textconv only to refuse it	--textconv
 readme_once	the README names --show-signature only to refuse it	--show-signature
 readme_once	the README names ls-files -m only to refuse it	ls-files -m
+readme_once	the README names --modified only to refuse it	--modified
+readme	the README says the agent refuses --modified and its abbreviations	The agent refuses `--modified`, the long form of `-m`, the same way, with every abbreviation of it git accepts (from `--m` up) and any short-option group holding an `m`, such as `-tm`, and to be safe it refuses an `-x` pattern with an `m` in it too.
 readme_once	the README names diff-index only to refuse it	diff-index
 readme_absent	the README lists no diff-index -p form, flagged or not	diff-index -p
 readme	the README says the agent adds no flag back	The agent never drops a flag, adds `--ext-diff`, `--textconv` or `--show-signature`, or puts a `%G` signature placeholder
@@ -822,6 +833,53 @@ readme	the README names the git hardening check	`lib/check_git_hardening.sh` run
 W2643_PINS_END
 
 check_pin_rows "$W2643_PINS"
+
+# --- W2668 (W2643 follow-up): ls-files' modified-files option, every spelling
+# The once rows count fixed strings, so `ls-files --modif` or `ls-files -tm`
+# passed them. git takes any unambiguous prefix of --modified (lib/
+# check_git_hardening.sh runs --modified and --modif) and any single-dash group
+# of short options. This counts words, not substrings: after each ls-files, up
+# to the next backtick, pipe, ;, & or ) or the end of the line, a word counts
+# when it is a prefix of --modified at least --m long (any =value cut off) or a
+# single-dash group holding an m; -- ends the options. --format,
+# --no-empty-directory, --exclude-standard, --cached, --others and -z never
+# count, and neither does --no-modified, which turns -m off (a self-test checks
+# each). The core with its rule files, and the README, each name exactly one,
+# in their refusal of `ls-files -m`; the --modified sentences name no ls-files.
+# Pitfall: the count is conservative. An -x<pattern> holding an m (-x*.md)
+# counts, though git reads it as an exclude pattern; the agent refuses it too.
+
+mf_count() { # $@=files -- prints <count> TAB <the words counted>
+  awk '
+    { s = $0
+      while ((i = index(s, "ls-files")) > 0) {
+        s = substr(s, i + 8); span = s
+        if (match(span, /[`|;&)]/)) span = substr(span, 1, RSTART - 1)
+        n = split(span, w, "[ \t]+")
+        for (k = 1; k <= n; k++) {
+          tok = w[k]; sub(/[,.:]+$/, "", tok)
+          if (tok == "--") break
+          if (substr(tok, 1, 2) == "--") {
+            name = substr(tok, 3); e = index(name, "=")
+            if (e) name = substr(name, 1, e - 1)
+            if (name != "" && index("modified", name) == 1) { c++; hits = hits " " tok }
+          } else if (tok ~ /^-./ && index(tok, "m") > 0) { c++; hits = hits " " tok }
+        }
+      }
+    }
+    END { printf "%d\t%s\n", c, hits }' "$@"
+}
+mf_check() { # $1=label $2=wanted count $3...=files
+  local label="$1" want="$2" got rc n; shift 2
+  got="$(mf_count "$@")"; rc=$?
+  n="$(printf '%s' "$got" | cut -f 1)"
+  if [ "$rc" -ne 0 ]; then echo "FAIL: $label -- awk could not read the files (exit $rc)"; fail=1
+  elif [ "$n" = "$want" ]; then echo "ok: $label"
+  else echo "FAIL: $label -- found $n, wanted $want:$(printf '%s' "$got" | cut -f 2)"; fail=1; fi
+}
+mf_files=("$AGENT"); for rn in $RULE_NAMES; do mf_files+=("$RULES_DIR/$rn"); done
+mf_check "the reviewer names a modified-files ls-files option only to refuse it, in any spelling" 1 "${mf_files[@]}"
+mf_check "the README names a modified-files ls-files option only to refuse it, in any spelling" 1 "$README"
 
 # --- W2642 beyond upstream: the copy's cleanup and the Linux box's /var -------
 # W2642's security review found the cleanup and the Linux socket denial partial
@@ -1837,6 +1895,16 @@ a refusal that lets --ext-diff back fails	the flags are never dropped or undone	
 ls-files -m back in the list fails	the agent names ls-files -m only to refuse it	with `ls-files`, `diff --cached`	with `ls-files`, `ls-files -m`, `diff --cached`
 a fully flagged ls-files -m form fails	the agent names ls-files -m only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -m`. A git that rejects `--no-lazy-fetch` (before 2.44)
 the ls-files -m refusal turned into a use fails	no ls-files -m on the working tree	No `ls-files -m`, which runs its clean filter	Use `ls-files -m` for changed files, though it runs its clean filter
+ls-files --modified back in the list fails	the agent names --modified only to refuse it	with `ls-files`, `diff --cached`	with `ls-files`, `ls-files --modified`, `diff --cached`
+a fully flagged ls-files --modified form fails	the agent names --modified only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files --modified`. A git that rejects `--no-lazy-fetch` (before 2.44)
+a new sentence allowing --modified fails	the agent names --modified only to refuse it	A git that rejects `--no-lazy-fetch` (before 2.44)	Pass `--modified` to list changed files. A git that rejects `--no-lazy-fetch` (before 2.44)
+an abbreviated ls-files --modif in the list fails	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	with `ls-files`, `diff --cached`	with `ls-files`, `ls-files --modif`, `diff --cached`
+a fully flagged ls-files --modif form fails	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files --modif`. A git that rejects `--no-lazy-fetch` (before 2.44)
+ls-files --m, the shortest abbreviation, fails	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files --m`. A git that rejects `--no-lazy-fetch` (before 2.44)
+a bundled ls-files -tm form fails	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -tm`. A git that rejects `--no-lazy-fetch` (before 2.44)
+a bundled ls-files -mz form fails	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -mz`. A git that rejects `--no-lazy-fetch` (before 2.44)
+an ls-files -x pattern holding an m fails, conservatively	the reviewer names a modified-files ls-files option only to refuse it, in any spelling	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -x*.md`. A git that rejects `--no-lazy-fetch` (before 2.44)
+the --modified refusal turned into a use fails	the agent refuses --modified, its abbreviations and an m in a short-option group	The same holds for `--modified`, the long form of that `-m`, for every abbreviation of it git accepts, from `--m` up, and for any short-option group holding an `m`, such as `-tm`; refuse even an `-x` pattern with an `m` in it.	Use `--modified`, the long form of that `-m`, for changed files instead.
 diff-index -p back in the list fails	the agent lists no diff-index -p form, flagged or not	with `ls-files`, `diff --cached`	with `ls-files`, `diff-index -p <commit>`, `diff --cached`
 a fully flagged diff-index -p form fails	the agent lists no diff-index -p form, flagged or not	A git that rejects `--no-lazy-fetch` (before 2.44)	Also run `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false diff-index -p <commit>`. A git that rejects `--no-lazy-fetch` (before 2.44)
 a copy step listing modified files fails	the probe copy step neutralises core.fsmonitor and lazy fetch	ls-files -z --cached --others	ls-files -z -m --cached --others
@@ -1855,10 +1923,26 @@ the README show form with --ext-diff added fails	the README names --ext-diff onl
 the README diff --cached form with --textconv added fails	the README names --textconv only to refuse it	diff --cached --no-ext-diff --no-textconv --submodule=short`	diff --cached --no-ext-diff --no-textconv --submodule=short --textconv`
 the README log form with --show-signature added fails	the README names --show-signature only to refuse it	log --no-ext-diff --no-textconv --submodule=short --no-show-signature`	log --no-ext-diff --no-textconv --submodule=short --no-show-signature --show-signature`
 a sixth README form for ls-files -m fails	the README names ls-files -m only to refuse it	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -m`, 
+a sixth README form for --modified fails	the README names --modified only to refuse it	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files --modified`, 
+a sixth README form for ls-files --modif fails	the README names a modified-files ls-files option only to refuse it, in any spelling	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files --modif`, 
+a sixth README form for ls-files -tm fails	the README names a modified-files ls-files option only to refuse it, in any spelling	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false ls-files -tm`, 
+the README's --modified refusal turned into a use fails	the README says the agent refuses --modified and its abbreviations	The agent refuses `--modified`, the long form of `-m`, the same way	The agent uses `--modified`, the long form of `-m`, instead
 a sixth README form for diff-index -p fails	the README lists no diff-index -p form, flagged or not	x509.program=false ls-files`, 	x509.program=false ls-files`, `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false diff-index -p <commit>`, 
 a README refusal cut to --ext-diff fails	the README says the agent adds no flag back	adds `--ext-diff`, `--textconv` or `--show-signature`,	adds `--ext-diff`,
 W2643_README_BREAKS_END
   break_replace_rows "$W2643_README_BREAKS" README.md
+  # W2668: the modified-files count, on lines written for it. None of the
+  # first line's words is a modified-files option; every word of the second is.
+  printf '%s\n' 'Run `ls-files --format=x --no-empty-directory --exclude-standard --cached --others -z`, `ls-files -- -m` and `ls-files --no-modified`.' > "$TMP/mf-none.md"
+  printf '%s\n' '`ls-files -m` `ls-files -tm` `ls-files -mz` `ls-files --m` `ls-files --mo` `ls-files --modif` `ls-files --modified` `ls-files -x*.md`' > "$TMP/mf-all.md"
+  mf_unit() { # $1=label $2=wanted count $3=file
+    local got; got="$(mf_count "$3")"
+    if [ "$(printf '%s' "$got" | cut -f 1)" = "$2" ]; then echo "ok: self-test: $1"
+    else echo "FAIL: self-test: $1 -- counted $(printf '%s' "$got" | cut -f 1), wanted $2:$(printf '%s' "$got" | cut -f 2)"; fail=1; fi
+  }
+  mf_unit "the modified-files count passes --format, --no-empty-directory, --exclude-standard, --cached, --others, -z, --no-modified and a path after --" 0 "$TMP/mf-none.md"
+  mf_unit "the modified-files count catches -m, -tm, -mz, --m, --mo, --modif, --modified and -x*.md" 8 "$TMP/mf-all.md"
+  expect "the shipped tree passes the modified-files count" 0 "ok: the README names a modified-files ls-files option only to refuse it, in any spelling" "$TMP/base"
   expect "the shipped tree passes every W2642 hardening pin" 0 "ok: the skill says the copy is removed on exit" "$TMP/base"
   break_pin_rows "$W2642_HARDEN_PINS"
   break_needle_rows "$W2642_HARDEN_PINS"
