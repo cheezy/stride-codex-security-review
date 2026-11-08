@@ -55,7 +55,10 @@
 # under $TMPDIR (else /tmp), removed on exit. Signals only PIDs it recorded and
 # has not yet seen gone, and only while a PID is alive and its start time
 # (ps -o lstart) still equals the one recorded with it, so a PID the system
-# handed out again is never signalled; never a process by name. CI is unset for the block's
+# handed out again is never signalled; never a process by name. A process a
+# snippet starts is recorded while the snippet still holds the command open,
+# so its PID cannot yet have been handed out again; the snippet then waits for
+# this script's release file, never more than 10 s. CI is unset for the block's
 # runs: the snippets are this script's own, never reviewed code.
 #
 # Usage:
@@ -96,9 +99,13 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-record() { # $1=pid -- noted with its start time, so a reused PID is never signalled
+record() { # $1=pid [$2=start time] -- noted with its start time, so a reused PID is never signalled
   PIDS="$PIDS $1"
-  ps -o lstart= -p "$1" > "$T/start.$1" 2>/dev/null
+  if [ "$#" -ge 2 ]; then
+    printf '%s' "$2" > "$T/start.$1"
+  else # taken now, while the process is the one meant: see run_held
+    LC_ALL=C ps -o lstart= -p "$1" > "$T/start.$1" 2>/dev/null
+  fi
 }
 forget() { # $1=pid -- seen gone, so never signalled again
   local p kept=
@@ -113,7 +120,7 @@ alive() { # $1=pid -- true while it runs (a zombie counts as gone)
 }
 same_start() { # $1=pid -- true while it is the process record() saw
   local now
-  now="$(ps -o lstart= -p "$1" 2>/dev/null)" || return 1
+  now="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)" || return 1
   [ -n "$now" ] && [ "$now" = "$(cat "$T/start.$1" 2>/dev/null)" ]
 }
 kill_recorded() { # $1=pid -- SIGKILL it only while it is alive and still the process recorded
@@ -126,6 +133,19 @@ gone_within() { # $1=pid -- true once it has gone, polling for up to 3 s
     sleep 0.1; i=$(( i + 1 ))
   done
   return 1
+}
+run_held() { # $@=a command writing $T/out -- runs it in the background, records the PID its
+  # "started <pid>" line names while the snippet still holds the command open, then releases it
+  local j i=0
+  rm -f "$T/release" "$T/out"; STARTED=
+  "$@" & j=$!
+  while [ "$i" -lt 100 ] && kill -0 "$j" 2>/dev/null && ! grep -q '^started [0-9]' "$T/out" 2>/dev/null; do
+    sleep 0.1; i=$(( i + 1 ))
+  done
+  STARTED="$(sed -n 's/^started \([0-9][0-9]*\)$/\1/p' "$T/out" 2>/dev/null)"
+  [ -z "$STARTED" ] || record "$STARTED"
+  : > "$T/release"
+  wait "$j"
 }
 nosession() { # run $@ in a new session, with no terminal and no start-up file
   env -u CI -u BASH_ENV -u ENV /usr/bin/perl -e 'use POSIX (); POSIX::setsid(); exec { $ARGV[0] } @ARGV' "$@"
@@ -172,15 +192,14 @@ fi
 # A PID whose start time no longer matches stands for one the system handed out
 # again: it must not be signalled. The EXIT cleanup ends this sleep if the
 # second half fails, since its start file then matches again.
-sleep 60 </dev/null >/dev/null 2>&1 & c=$!; record "$c"
-echo 'not its start time' > "$T/start.$c"
+sleep 60 </dev/null >/dev/null 2>&1 & c=$!; record "$c" 'not its start time'
 kill_recorded "$c"; sleep 0.2
 if alive "$c"; then
   echo "ok: control: a recorded PID whose start time no longer matches is not signalled"
 else
   echo "FAIL: control: a recorded PID whose start time no longer matches is not signalled"; fail=1
 fi
-ps -o lstart= -p "$c" > "$T/start.$c" 2>/dev/null
+record "$c"
 if { kill_recorded "$c" && wait "$c"; } 2>/dev/null; gone_within "$c"; then
   echo "ok: control: the same PID is signalled once its start time matches again"
 else
@@ -199,18 +218,21 @@ else
 fi
 
 # --- a background snippet -------------------------------------------------------
-BG="/bin/sh -c 'sleep 60 </dev/null >/dev/null 2>&1 & echo \"started \$!\"'"
+HOLD="i=0; while [ ! -e $T/release ] && [ \$i -lt 100 ]; do sleep 0.1; i=\$((i+1)); done"
+BG="/bin/sh -c 'sleep 60 </dev/null >/dev/null 2>&1 & echo \"started \$!\"; $HOLD'"
 bg_case() { # $1=shell
   local s
-  run_block "$1" "$BG"
+  run_held run_block "$1" "$BG"
   if home_refusal; then
     echo "skipped: $1: the block refused to probe here: $(refusal) (not passed)"; return
   fi
-  s="$(sed -n 's/^started \([0-9][0-9]*\)$/\1/p' "$T/out")"
+  s="$STARTED"
   if [ -z "$s" ] || ! grep -qx 'snippet exit: 0' "$T/out"; then
     echo "FAIL: $1: the background snippet ran in the box -- output: $(flat)"; fail=1; return
   fi
-  record "$s"
+  if [ ! -s "$T/start.$s" ]; then
+    echo "FAIL: $1: the background snippet's process was recorded while the command was held open -- PID $s"; fail=1; return
+  fi
   if gone_within "$s"; then
     echo "ok: $1: a background snippet's process is gone when the command exits"
   else
@@ -224,11 +246,12 @@ for sh in $SHELLS; do bg_case "$sh"; done
 # left its parent's process group. Each probe prints allowed or denied, and
 # denied only on EPERM, the sandbox's answer.
 probes() {
-  printf '%s' "use POSIX (); use Socket; use Errno; defined(my \$c = fork) or die; if (\$c) { print \"started \$c\\n\"; exit 0 } POSIX::setsid(); sleep 2; print -e \$ENV{TMPDIR} ? \"copy: present\\n\" : \"copy: removed\\n\"; print open(my \$f, \">\", \"$1\") || !\$!{EPERM} ? \"write: allowed\\n\" : \"write: denied\\n\"; print opendir(my \$d, \"$2\") || !\$!{EPERM} ? \"home: allowed\\n\" : \"home: denied\\n\"; socket(my \$s, PF_INET, SOCK_STREAM, 0) or die; print connect(\$s, sockaddr_in(9, INADDR_LOOPBACK)) || !\$!{EPERM} ? \"network: allowed\\n\" : \"network: denied\\n\"; print kill(0, $3) || !\$!{EPERM} ? \"signal: allowed\\n\" : \"signal: denied\\n\"; print mkdir(\$ENV{TMPDIR}) ? \"recreated: \$ENV{TMPDIR}\\n\" : \"recreated: no\\n\""
+  printf '%s' "use POSIX (); use Socket; use Errno; \$| = 1; defined(my \$c = fork) or die; if (\$c) { print \"started \$c\\n\"; my \$i = 0; select(undef, undef, undef, 0.1) while ! -e \"$T/release\" && \$i++ < 100; exit 0 } POSIX::setsid(); sleep 2; print -e \$ENV{TMPDIR} ? \"copy: present\\n\" : \"copy: removed\\n\"; print open(my \$f, \">\", \"$1\") || !\$!{EPERM} ? \"write: allowed\\n\" : \"write: denied\\n\"; print opendir(my \$d, \"$2\") || !\$!{EPERM} ? \"home: allowed\\n\" : \"home: denied\\n\"; socket(my \$s, PF_INET, SOCK_STREAM, 0) or die; print connect(\$s, sockaddr_in(9, INADDR_LOOPBACK)) || !\$!{EPERM} ? \"network: allowed\\n\" : \"network: denied\\n\"; print kill(0, $3) || !\$!{EPERM} ? \"signal: allowed\\n\" : \"signal: denied\\n\"; print mkdir(\$ENV{TMPDIR}) ? \"recreated: \$ENV{TMPDIR}\\n\" : \"recreated: no\\n\""
 }
 # The control: the same probes outside the box must all be allowed.
-TMPDIR="$T/control-copy" /usr/bin/perl -e "$(probes "$T/control-write" "$HOME" "$$")" </dev/null >"$T/out" 2>&1
-s="$(sed -n 's/^started \([0-9][0-9]*\)$/\1/p' "$T/out")"; [ -z "$s" ] || { record "$s"; gone_within "$s" >/dev/null; }
+control_probes() { TMPDIR="$T/control-copy" /usr/bin/perl -e "$(probes "$T/control-write" "$HOME" "$$")" </dev/null >"$T/out" 2>&1; }
+run_held control_probes
+s="$STARTED"; [ -z "$s" ] || gone_within "$s" >/dev/null
 if grep -qx 'write: allowed' "$T/out" && grep -qx 'home: allowed' "$T/out" \
   && grep -qx 'network: allowed' "$T/out" && grep -qx 'signal: allowed' "$T/out"; then
   echo "ok: control: outside the box the setsid probes are all allowed"
@@ -238,12 +261,16 @@ fi
 rm -rf "$T/control-write" "$T/control-copy"
 
 SETSID="/usr/bin/perl -e '$(probes "$T/outside/escaped" "$HOME" "$$")'"
-run_block bash "$SETSID"
+run_held run_block bash "$SETSID"
 if home_refusal; then
   echo "skipped: setsid: the block refused to probe here: $(refusal) (not passed)"
 else
-  s="$(sed -n 's/^started \([0-9][0-9]*\)$/\1/p' "$T/out")"
-  [ -z "$s" ] || record "$s"
+  s="$STARTED"
+  if [ -n "$s" ] && [ -s "$T/start.$s" ]; then
+    echo "ok: setsid: the survivor was recorded while the command was held open"
+  else
+    echo "FAIL: setsid: the survivor was recorded while the command was held open -- output: $(flat)"; fail=1
+  fi
   if grep -qx 'snippet exit: 0' "$T/out" && grep -qx 'copy: removed' "$T/out"; then
     echo "ok: setsid: the survivor outlives the command (the accepted residual)"
   else
