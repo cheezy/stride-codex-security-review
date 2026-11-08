@@ -18,6 +18,10 @@
 #     something.
 #   - A background snippet: the snippet starts a sleep in the background and
 #     exits. Under every shell the sleep must be gone once the command exits.
+#   - A locking snippet (W2671, from upstream 275e87a): it makes a nested
+#     directory pair in the copy and takes every permission off both. Under
+#     every shell the copy must still be gone once the command exits, which
+#     only the trap's unlock, run inside the box, makes possible.
 #   - A setsid snippet: the snippet forks a child that calls setsid() and so
 #     leaves the snippet's process group. The mode file records that child as
 #     an accepted residual, so this checks the residual and its stated reason:
@@ -28,20 +32,32 @@
 #     recorded PID if it is still alive.
 #   - The perl guard: with the block's /usr/bin/perl test pointed at a path
 #     that does not exist, the block must refuse to probe and run nothing.
+#   - PATH (W2671, from upstream dc648f3): run from a scratch repository
+#     holding planted tools named for the ones the block runs, with `.`, an
+#     empty entry and relative entries on PATH, under every shell no planted
+#     tool may run and the snippet must see only the absolute entries; with only
+#     relative entries the block must refuse and run nothing. With the PATH line
+#     taken out, the trap's cd / alone must keep a planted rm in the copy from
+#     running.
 #   - The Linux socket search's decision, not the search: the block's search
 #     line runs under sh with a stand-in `timeout` that prints a socket path,
 #     prints nothing, or exits 124 or 1, and with a HOME holding a `*`, `?` or
 #     `[`. Only the empty, successful search under a plain HOME may go on. The real GNU find under bwrap is not run here; the Linux run is a
 #     separate manual task.
 #
-# Break-its (skipped with CHECK_PROBE_CLEANUP_CHILD set): a mode file whose box
+# Break-its (skipped with CHECK_PROBE_CLEANUP_CHILD set), on copies of the mode
+# file made by a fixed-string replace (index and substr, never gsub, which
+# would read an & in the replacement as the match): a mode file whose box
 # starts the snippet without the perl process-group step, and one whose box
 # does not exec sandbox-exec, must each fail the background case under bash,
 # sh and zsh; one whose search ignores the search's own status must fail the
 # timed-out search case, one that ignores what the search found must fail the
 # socket case, and one that searches a home holding a pattern character must
-# fail the glob-HOME case; one whose perl guard never refuses must fail the
-# perl-guard case; one whose profile drops (deny network*), and each one that
+# fail the glob-HOME case; one whose trap drops the unlock must fail the
+# locked-directory case; one whose perl guard never refuses must fail the
+# perl-guard case; one that keeps PATH's relative entries, or pipes to a bare
+# cat, must fail the PATH case, and one whose trap drops its cd / must fail the
+# trap case; one whose profile drops (deny network*), and each one that
 # turns the write-outside-the-copy, home-read or outside-signal deny into an
 # allow, must fail that setsid denial; and a PATH with no sandbox-exec must print a skipped
 # line, exit 0 and print no ok: line.
@@ -241,6 +257,31 @@ bg_case() { # $1=shell
 }
 for sh in $SHELLS; do bg_case "$sh"; done
 
+# --- a snippet that locks directories in the copy -------------------------------
+# The trap must unlock them, inside the box, before rm -rf, or the copy stays.
+LOCK="/bin/sh -c 'mkdir -p locked/inner && touch locked/inner/f && chmod 0 locked/inner && chmod 0 locked && echo \"copy \$TMPDIR\"'"
+lock_case() { # $1=shell
+  local c tmp
+  run_block "$1" "$LOCK"
+  if home_refusal; then
+    echo "skipped: $1: the block refused to probe here: $(refusal) (not passed)"; return
+  fi
+  c="$(sed -n 's/^copy \(.*\)$/\1/p' "$T/out")"
+  tmp="$(CDPATH= cd -P -- "${TMPDIR:-/tmp}" && pwd -P)"
+  case "$c" in
+    "$tmp"/stride-security-probe.??????) ;;
+    *) echo "FAIL: $1: the locking snippet ran in the box -- output: $(flat)"; fail=1; return ;;
+  esac
+  if [ ! -e "$c" ] && grep -qx 'snippet exit: 0' "$T/out"; then
+    echo "ok: $1: a copy holding locked directories is removed when the command exits"
+  else
+    echo "FAIL: $1: a copy holding locked directories is removed when the command exits -- $c is still there"; fail=1
+    # Ours alone: it holds the scratch repository's file and the locked pair.
+    [ ! -d "$c" ] || { find "$c" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$c"; }
+  fi
+}
+for sh in $SHELLS; do lock_case "$sh"; done
+
 # --- a setsid snippet: the accepted residual and its reason -----------------
 # probes <write-target> <home> <pid> -- the perl body, run in a child that has
 # left its parent's process group. Each probe prints allowed or denied, and
@@ -314,6 +355,102 @@ else
   fi
 fi
 
+# --- PATH: no lookup reaches a file in the repository or the copy (W2671) -------
+# The block finds every tool it runs outside the box on PATH: mktemp, git, tar
+# and find from the project root, then tr, getent, cut, id, sed, sandbox-exec
+# and, in its trap, rm from inside the copy; the cat at the end of its pipe
+# would be found from the project root before the PATH line runs. Each scratch repository here holds
+# planted tools of those names that leave a mark under $T and fail (the rm and
+# cat also do their jobs, so the copy still goes and no write meets a closed pipe); the shells run by absolute path, since PATH
+# holds relative entries. A planted tool is this script's own, never reviewed code.
+abs_shell() { # $1=bash|sh|zsh
+  case "$1" in bash) echo /bin/bash ;; sh) echo /bin/sh ;; zsh) echo "$(command -v zsh) -f" ;; esac
+}
+run_path() { # $1=shell $2=PATH $3=repository $4=block text $5=snippet -- output in $T/out
+  local cmd
+  cmd="$(SNIPPET="$5" PH="$PLACEHOLDER" awk '{ i = index($0, ENVIRON["PH"]); if (i) $0 = substr($0, 1, i - 1) ENVIRON["SNIPPET"] substr($0, i + length(ENVIRON["PH"])); print }' <<EOF
+$4
+EOF
+)"
+  # shellcheck disable=SC2046
+  ( cd "$3" && /usr/bin/env -u CI -u BASH_ENV -u ENV PATH="$2" /usr/bin/perl -e 'use POSIX (); POSIX::setsid(); exec { $ARGV[0] } @ARGV' $(abs_shell "$1") -c "$cmd" </dev/null >"$T/out" 2>&1 )
+}
+plant() { # $1=path of a tool that marks $T/planted.<name> when it runs
+  mkdir -p "$(dirname "$1")" || return 1
+  case "$1" in
+    */rm) printf '#!/bin/sh\n: > "%s/planted.rm"\nexec /bin/rm "$@"\n' "$T" > "$1" ;;
+    */cat) printf '#!/bin/sh\n: > "%s/planted.cat"\nexec /bin/cat\n' "$T" > "$1" ;;
+    *) printf '#!/bin/sh\n: > "%s/planted.%s"\nexit 1\n' "$T" "$(basename "$1")" > "$1" ;;
+  esac
+  chmod +x "$1"
+}
+planted() { # prints the planted tools that ran, if any
+  local m
+  for m in "$T"/planted.*; do [ -e "$m" ] && printf '%s ' "${m##*/planted.}"; done
+}
+mkdir "$T/prepo" "$T/trepo" && git -C "$T/prepo" init -q && git -C "$T/trepo" init -q \
+  && echo probe > "$T/prepo/f.txt" && echo probe > "$T/trepo/f.txt" || {
+  echo "FAIL: could not make the PATH scratch repositories"; exit 1; }
+for t in cat mktemp git tar find tr getent cut id sed sandbox-exec rm bin/cat bin/mktemp bin/git '~/t/mktemp' '~/t/git'; do
+  plant "$T/prepo/$t" || { echo "FAIL: could not plant $t"; exit 1; }
+done
+plant "$T/trepo/rm" || { echo "FAIL: could not plant rm"; exit 1; }
+# The oracle: the harness's own absolute entries, taken without the block's loop.
+want_path="$(printf '%s\n' "$PATH" | tr ':' '\n' | grep '^/' | paste -sd: -)"
+mixed=".:bin::~/t:$PATH:"
+path_case() { # $1=shell
+  local got
+  rm -f "$T"/planted.*
+  run_path "$1" "$mixed" "$T/prepo" "$block" "/bin/sh -c 'echo \"path \$PATH\"'"
+  if home_refusal; then
+    echo "skipped: $1: the block refused to probe here: $(refusal) (not passed)"; return
+  fi
+  got="$(sed -n 's/^path //p' "$T/out")"
+  if [ -z "$(planted)" ] && grep -qx 'snippet exit: 0' "$T/out" && [ -n "$got" ] && [ "$got" = "$want_path" ]; then
+    echo "ok: $1: relative PATH entries run nothing from the repository or the copy"
+  else
+    echo "FAIL: $1: relative PATH entries run nothing from the repository or the copy -- ran: $(planted)output: $(flat)"; fail=1
+  fi
+  rm -f "$T"/planted.*
+  run_path "$1" ".:bin::~/t" "$T/prepo" "$block" "/bin/sh -c 'echo ran'"
+  if [ -z "$(planted)" ] && grep -qx 'PATH holds no absolute entry: grading by reading' "$T/out" \
+    && ! grep -q 'snippet exit:' "$T/out" && ! grep -qx 'ran' "$T/out"; then
+    echo "ok: $1: a PATH with no absolute entry refuses to probe and runs nothing"
+  else
+    echo "FAIL: $1: a PATH with no absolute entry refuses to probe and runs nothing -- ran: $(planted)output: $(flat)"; fail=1
+  fi
+}
+for sh in $SHELLS; do path_case "$sh"; done
+# The trap's move to /, on its own: with the PATH line taken out, `.` stays on
+# PATH, and only the trap's cd / keeps the copy's planted rm from running.
+keep_path="$(printf '%s\n' "$block" | sed '/PATH holds no absolute entry: grading by reading/d')"
+if [ "$keep_path" = "$block" ]; then
+  echo "FAIL: the block holds the PATH line"; fail=1
+else
+  trap_case() { # $1=shell
+    local c tmp
+    rm -f "$T"/planted.*
+    run_path "$1" ".:$PATH" "$T/trepo" "$keep_path" "/bin/sh -c 'echo \"copy \$TMPDIR\"'"
+    if home_refusal; then
+      echo "skipped: $1: the block refused to probe here: $(refusal) (not passed)"; return
+    fi
+    c="$(sed -n 's/^copy \(.*\)$/\1/p' "$T/out")"
+    tmp="$(CDPATH= cd -P -- "${TMPDIR:-/tmp}" && pwd -P)"
+    case "$c" in
+      "$tmp"/stride-security-probe.??????) ;;
+      *) echo "FAIL: $1: the trap's move to / keeps a planted rm in the copy from running -- the snippet did not run: $(flat)"; fail=1; return ;;
+    esac
+    if [ -z "$(planted)" ] && [ ! -e "$c" ] && grep -qx 'snippet exit: 0' "$T/out"; then
+      echo "ok: $1: the trap's move to / keeps a planted rm in the copy from running"
+    else
+      echo "FAIL: $1: the trap's move to / keeps a planted rm in the copy from running -- ran: $(planted)output: $(flat)"; fail=1
+      [ ! -d "$c" ] || rm -rf "$c"
+    fi
+  }
+  for sh in $SHELLS; do trap_case "$sh"; done
+fi
+rm -f "$T"/planted.*
+
 # --- the Linux socket search's decision -------------------------------------
 search="$(printf '%s\n' "$block" | grep -m1 '^      case "$h" in ')"
 if [ -z "$search" ]; then
@@ -350,7 +487,10 @@ fi
 if [ -z "${CHECK_PROBE_CLEANUP_CHILD:-}" ]; then
   B="$T/break"; mkdir "$B"
   bre() { # $1=label $2=from $3=to $4=out -- a copy of the mode file with one fixed-string replace
-    FROM="$2" TO="$3" awk '{ while ((i = index($0, ENVIRON["FROM"])) > 0) { $0 = substr($0, 1, i - 1) "\001" substr($0, i + length(ENVIRON["FROM"])) } gsub(/\001/, ENVIRON["TO"]); print }' "$MODE" > "$4"
+    # index and substr only: gsub would read & and \ in TO as the match and an escape
+    FROM="$2" TO="$3" awk '{ out = ""; s = $0
+      while ((i = index(s, ENVIRON["FROM"])) > 0) { out = out substr(s, 1, i - 1) ENVIRON["TO"]; s = substr(s, i + length(ENVIRON["FROM"])) }
+      print out s }' "$MODE" > "$4"
     if cmp -s "$MODE" "$4"; then echo "FAIL: break-it: $1 -- the replace changed nothing"; fail=1; return 1; fi
   }
   expect_bg_fail() { # $1=label $2=mode file -- every shell's background case must fail
@@ -392,6 +532,10 @@ if [ -z "${CHECK_PROBE_CLEANUP_CHILD:-}" ]; then
     expect_child_fail "a home holding a pattern character searched anyway fails the glob-HOME case" "$B/glob.md" \
       "FAIL: socket search (search: empty, HOME /nonexistent-home*) -- wanted refuse"
   fi
+  if bre "no unlock" ' ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1;' '' "$B/unlock.md"; then
+    expect_child_fail "a trap without the unlock fails the locked-directory case" "$B/unlock.md" \
+      "FAIL: bash: a copy holding locked directories is removed when the command exits"
+  fi
   if bre "perl guard defanged" "[ -x /usr/bin/perl ] || { echo" "[ -x /usr/bin/perl ] || true || { echo" "$B/guard.md"; then
     expect_child_fail "a perl guard that never refuses fails the perl-guard case" "$B/guard.md" \
       "FAIL: without /usr/bin/perl the block refuses to probe and runs nothing"
@@ -411,6 +555,18 @@ if [ -z "${CHECK_PROBE_CLEANUP_CHILD:-}" ]; then
         "FAIL: setsid: the survivor reports $k: denied"
     fi
   done
+  if bre "PATH kept" '[ -n "$x" ] && PATH="$x" ||' '[ -n "$x" ] ||' "$B/path.md"; then
+    expect_child_fail "a block that keeps PATH's relative entries fails the PATH case" "$B/path.md" \
+      "FAIL: bash: relative PATH entries run nothing from the repository or the copy"
+  fi
+  if bre "bare cat" '2>&1 | /bin/cat' '2>&1 | cat' "$B/cat.md"; then
+    expect_child_fail "a pipe to a bare cat fails the PATH case" "$B/cat.md" \
+      "FAIL: bash: relative PATH entries run nothing from the repository or the copy"
+  fi
+  if bre "trap stays in the copy" 'trap "" PIPE; cd /;' 'trap "" PIPE;' "$B/cd.md"; then
+    expect_child_fail "a trap that starts its lookups in the copy fails the trap case" "$B/cd.md" \
+      "FAIL: bash: the trap's move to / keeps a planted rm in the copy from running"
+  fi
   mkdir "$T/nosbx"
   ln -s /usr/bin/dirname "$T/nosbx/dirname" && ln -s /usr/bin/basename "$T/nosbx/basename"
   out="$(PATH="$T/nosbx" CHECK_PROBE_CLEANUP_CHILD=1 /bin/bash "$SELF" 2>&1)"; rc=$?
