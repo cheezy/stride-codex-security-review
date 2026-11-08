@@ -37,8 +37,12 @@
 #     empty entry and relative entries on PATH, under every shell no planted
 #     tool may run and the snippet must see only the absolute entries; with only
 #     relative entries the block must refuse and run nothing. With the PATH line
-#     taken out, the trap's cd / alone must keep a planted rm in the copy from
-#     running.
+#     taken out, the trap's cd / and its system PATH must keep a planted rm in
+#     the copy from running, and with an absolute PATH entry holding a planted
+#     rm first, the trap must not run it.
+#   - TMPDIR (W2671 round 3, from upstream 97a3e32): with a relative TMPDIR
+#     naming a directory in the scratch repository, under every shell the block
+#     must refuse, run nothing and leave no copy there.
 #   - The Linux socket search's decision, not the search: the block's search
 #     line runs under sh with a stand-in `timeout` that prints a socket path,
 #     prints nothing, or exits 124 or 1, and with a HOME holding a `*`, `?` or
@@ -56,8 +60,12 @@
 # fail the glob-HOME case; one whose trap drops the unlock must fail the
 # locked-directory case; one whose perl guard never refuses must fail the
 # perl-guard case; one that keeps PATH's relative entries, or pipes to a bare
-# cat, must fail the PATH case, and one whose trap drops its cd / must fail the
-# trap case; one whose profile drops (deny network*), and each one that
+# cat, must fail the PATH case, one whose trap drops both its cd / and its
+# system PATH must fail the trap case, one whose trap drops its system PATH must
+# fail the absolute-entry case, and one without the TMPDIR refusal must fail the
+# TMPDIR case (the trap's cd / alone is pinned by check_agent_contract.sh, since
+# the system PATH already keeps the copy's planted rm from running); one whose
+# profile drops (deny network*), and each one that
 # turns the write-outside-the-copy, home-read or outside-signal deny into an
 # allow, must fail that setsid denial; and a PATH with no sandbox-exec must print a skipped
 # line, exit 0 and print no ok: line.
@@ -421,8 +429,9 @@ path_case() { # $1=shell
   fi
 }
 for sh in $SHELLS; do path_case "$sh"; done
-# The trap's move to /, on its own: with the PATH line taken out, `.` stays on
-# PATH, and only the trap's cd / keeps the copy's planted rm from running.
+# The trap's own defences: with the PATH line taken out, `.` stays on PATH, and
+# only the trap's cd / and its system PATH keep the copy's planted rm from
+# running.
 keep_path="$(printf '%s\n' "$block" | sed '/PATH holds no absolute entry: grading by reading/d')"
 if [ "$keep_path" = "$block" ]; then
   echo "FAIL: the block holds the PATH line"; fail=1
@@ -438,18 +447,68 @@ else
     tmp="$(CDPATH= cd -P -- "${TMPDIR:-/tmp}" && pwd -P)"
     case "$c" in
       "$tmp"/stride-security-probe.??????) ;;
-      *) echo "FAIL: $1: the trap's move to / keeps a planted rm in the copy from running -- the snippet did not run: $(flat)"; fail=1; return ;;
+      *) echo "FAIL: $1: the trap's move to / and its system PATH keep a planted rm in the copy from running -- the snippet did not run: $(flat)"; fail=1; return ;;
     esac
     if [ -z "$(planted)" ] && [ ! -e "$c" ] && grep -qx 'snippet exit: 0' "$T/out"; then
-      echo "ok: $1: the trap's move to / keeps a planted rm in the copy from running"
+      echo "ok: $1: the trap's move to / and its system PATH keep a planted rm in the copy from running"
     else
-      echo "FAIL: $1: the trap's move to / keeps a planted rm in the copy from running -- ran: $(planted)output: $(flat)"; fail=1
+      echo "FAIL: $1: the trap's move to / and its system PATH keep a planted rm in the copy from running -- ran: $(planted)output: $(flat)"; fail=1
       [ ! -d "$c" ] || rm -rf "$c"
     fi
   }
   for sh in $SHELLS; do trap_case "$sh"; done
 fi
 rm -f "$T"/planted.*
+
+# The trap's system PATH: an absolute entry, first on PATH, holding a planted rm.
+# Only the trap runs rm, so the plant must stay unrun while the copy still goes.
+plant "$T/abin/rm" || { echo "FAIL: could not plant rm in an absolute entry"; exit 1; }
+abs_trap_case() { # $1=shell
+  local c tmp
+  rm -f "$T"/planted.*
+  run_path "$1" "$T/abin:$PATH" "$T/repo" "$block" "/bin/sh -c 'echo \"copy \$TMPDIR\"'"
+  if home_refusal; then
+    echo "skipped: $1: the block refused to probe here: $(refusal) (not passed)"; return
+  fi
+  c="$(sed -n 's/^copy \(.*\)$/\1/p' "$T/out")"
+  tmp="$(CDPATH= cd -P -- "${TMPDIR:-/tmp}" && pwd -P)"
+  case "$c" in
+    "$tmp"/stride-security-probe.??????) ;;
+    *) echo "FAIL: $1: the trap runs no tool from an absolute PATH entry -- the snippet did not run: $(flat)"; fail=1; return ;;
+  esac
+  if [ -z "$(planted)" ] && [ ! -e "$c" ] && grep -qx 'snippet exit: 0' "$T/out"; then
+    echo "ok: $1: the trap runs no tool from an absolute PATH entry"
+  else
+    echo "FAIL: $1: the trap runs no tool from an absolute PATH entry -- ran: $(planted)output: $(flat)"; fail=1
+    [ ! -d "$c" ] || rm -rf "$c"
+  fi
+}
+for sh in $SHELLS; do abs_trap_case "$sh"; done
+rm -f "$T"/planted.*
+
+# --- TMPDIR: a relative one is refused (W2671 round 3) ---------------------------
+# mktemp would name the copy relative to the project root, and the trap, from /,
+# would then miss it and leave it in the working tree.
+mkdir -p "$T/drepo/rel" && git -C "$T/drepo" init -q && echo probe > "$T/drepo/f.txt" || {
+  echo "FAIL: could not make the TMPDIR scratch repository"; exit 1; }
+tmpdir_case() { # $1=shell
+  local cmd left
+  cmd="$(SNIPPET="/bin/sh -c 'echo ran'" PH="$PLACEHOLDER" awk '{ i = index($0, ENVIRON["PH"]); if (i) $0 = substr($0, 1, i - 1) ENVIRON["SNIPPET"] substr($0, i + length(ENVIRON["PH"])); print }' <<EOF
+$block
+EOF
+)"
+  # shellcheck disable=SC2046
+  ( cd "$T/drepo" && /usr/bin/env -u CI -u BASH_ENV -u ENV TMPDIR=rel /usr/bin/perl -e 'use POSIX (); POSIX::setsid(); exec { $ARGV[0] } @ARGV' $(abs_shell "$1") -c "$cmd" </dev/null >"$T/out" 2>&1 )
+  left="$(ls -A "$T/drepo/rel")"
+  if grep -qx 'TMPDIR is not an absolute path: grading by reading' "$T/out" && ! grep -q 'snippet exit:' "$T/out" \
+    && ! grep -qx 'ran' "$T/out" && [ -z "$left" ]; then
+    echo "ok: $1: a relative TMPDIR refuses to probe and leaves no copy in the repository"
+  else
+    echo "FAIL: $1: a relative TMPDIR refuses to probe and leaves no copy in the repository -- left: $left output: $(flat)"; fail=1
+    rm -rf "$T/drepo/rel" && mkdir "$T/drepo/rel"
+  fi
+}
+for sh in $SHELLS; do tmpdir_case "$sh"; done
 
 # --- the Linux socket search's decision -------------------------------------
 search="$(printf '%s\n' "$block" | grep -m1 '^      case "$h" in ')"
@@ -563,9 +622,17 @@ if [ -z "${CHECK_PROBE_CLEANUP_CHILD:-}" ]; then
     expect_child_fail "a pipe to a bare cat fails the PATH case" "$B/cat.md" \
       "FAIL: bash: relative PATH entries run nothing from the repository or the copy"
   fi
-  if bre "trap stays in the copy" 'trap "" PIPE; cd /;' 'trap "" PIPE;' "$B/cd.md"; then
-    expect_child_fail "a trap that starts its lookups in the copy fails the trap case" "$B/cd.md" \
-      "FAIL: bash: the trap's move to / keeps a planted rm in the copy from running"
+  if bre "trap stays in the copy" 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin;' 'trap "" PIPE;' "$B/cd.md"; then
+    expect_child_fail "a trap that starts its lookups in the copy on the caller's PATH fails the trap case" "$B/cd.md" \
+      "FAIL: bash: the trap's move to / and its system PATH keep a planted rm in the copy from running"
+  fi
+  if bre "trap on the caller's PATH" 'cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z' 'cd /; [ -z' "$B/syspath.md"; then
+    expect_child_fail "a trap that searches the caller's PATH fails the absolute-entry case" "$B/syspath.md" \
+      "FAIL: bash: the trap runs no tool from an absolute PATH entry"
+  fi
+  if bre "no TMPDIR refusal" "case \"\${TMPDIR:-/tmp}\" in /*) ;; *) echo 'TMPDIR is not an absolute path: grading by reading'; exit 1 ;; esac; " '' "$B/tmpdir.md"; then
+    expect_child_fail "a block without the relative-TMPDIR refusal fails the TMPDIR case" "$B/tmpdir.md" \
+      "FAIL: bash: a relative TMPDIR refuses to probe and leaves no copy in the repository"
   fi
   mkdir "$T/nosbx"
   ln -s /usr/bin/dirname "$T/nosbx/dirname" && ln -s /usr/bin/basename "$T/nosbx/basename"

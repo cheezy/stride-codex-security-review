@@ -569,7 +569,7 @@ agent	the rule names the frontmatter tools	`read, search, glob, shell` is your w
 agent	the read-only command list is closed	the read-only commands `ls`, `wc` and `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false` with `ls-files`, `diff --cached`, `diff <commit> <commit>`, `log` or `show`, every `diff`, `log` and `show` with `--no-ext-diff --no-textconv --submodule=short`, `log` and `show` also with `--no-show-signature`, with no redirection and no option that writes a file
 agent	the forbidden git verbs are named	and never through `git` either (`stash`, `checkout`, `restore`, `apply`, `worktree`, `commit`)
 repro	the probe copy is made under TMPDIR	d="$(mktemp -d "${TMPDIR:-/tmp}/stride-security-probe.XXXXXX")" || exit 1
-repro	the probe removes its copy on exit	p=; g=; trap 'trap "" PIPE; cd /; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+repro	the probe removes its copy on exit	p=; g=; trap 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
 repro	the probe works in the copy's real path	r="$(cd "$d" && pwd -P)" && cd "$r" || exit 1
 repro	the probe extracts its copy into the copy	ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$d"
 repro	the macOS box is chosen when sandbox-exec exists	if command -v sandbox-exec >/dev/null 2>&1; then
@@ -709,8 +709,8 @@ check_pin_rows "$D378_PINS"
 IFS= read -r -d '' PROBE_BLOCK_WANT <<'PROBE_BLOCK_END' || true
   ( [ -z "${CI:-}" ] || { echo 'CI is set: grading by reading'; exit 1; }
     q="${PATH:-}:" x=; while [ -n "$q" ]; do e="${q%%:*}"; q="${q#*:}"; case "$e" in /*) x="${x:+$x:}$e" ;; esac; done; [ -n "$x" ] && PATH="$x" || { echo 'PATH holds no absolute entry: grading by reading'; exit 1; }
-    d="$(mktemp -d "${TMPDIR:-/tmp}/stride-security-probe.XXXXXX")" || exit 1
-    p=; g=; trap 'trap "" PIPE; cd /; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+    case "${TMPDIR:-/tmp}" in /*) ;; *) echo 'TMPDIR is not an absolute path: grading by reading'; exit 1 ;; esac; d="$(mktemp -d "${TMPDIR:-/tmp}/stride-security-probe.XXXXXX")" || exit 1
+    p=; g=; trap 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
     git --no-lazy-fetch version >/dev/null 2>&1 || { echo 'git before 2.44: grading by reading'; exit 1; }
     git --no-lazy-fetch -c core.fsmonitor=false ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$d"
     [ -z "$(find "$d" -type l)" ] || { echo 'probe copy holds a link: grading by reading'; exit 1; }
@@ -939,7 +939,7 @@ mf_check "the README names a modified-files ls-files option only to refuse it, i
 # either-system SIGKILL wording; the Linux exec was not run either.
 
 IFS= read -r -d '' W2642_HARDEN_PINS <<'W2642_HARDEN_PINS_END' || true
-repro	the probe kills the snippet and unlocks the copy on exit	p=; g=; trap 'trap "" PIPE; cd /; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+repro	the probe kills the snippet and unlocks the copy on exit	p=; g=; trap 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; ! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
 repro	the macOS box runs in place of the job's shell	      box() { exec sandbox-exec -p "(version 1)
 repro	the macOS box makes the snippet its own process-group leader in any shell	/usr/bin/env -i /usr/bin/perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV; exit 127' "$@"; }
 repro	the probe refuses a Mac without /usr/bin/perl	[ -x /usr/bin/perl ] || { echo 'no /usr/bin/perl to give the snippet its own process group: grading by reading'; exit 1; }
@@ -991,7 +991,7 @@ essentials	the skill names the SIGKILL residual on either system	on either syste
 essentials	the skill says the copy is removed on exit	and removes the copy when that command exits, after ending the snippet
 repro	the macOS box refuses the terminal devices	(deny file-read* (regex #\"^/dev/tty\"))
 repro	the probe output goes through a pipe	echo "snippet exit: $s" ) 2>&1 | /bin/cat
-repro	the exit trap ignores SIGPIPE	trap 'trap "" PIPE; cd /; [ -z "$g" ]
+repro	the exit trap ignores SIGPIPE	trap 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ]
 repro	the trap unlocks only directories, inside the box	! command -v box >/dev/null 2>&1 || (box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1; rm -rf "$d"
 absent	the trap runs no recursive chmod	chmod -R
 repro	the prose says the snippet has no terminal	so a snippet cannot push input into the terminal of the shell that runs the command
@@ -1022,10 +1022,17 @@ check_pin_rows "$W2642_HARDEN_PINS"
 # first lookup, and the pipe at the end, which starts from the project root
 # before that line runs, names /bin/cat. lib/check_probe_cleanup.sh runs the
 # unlock and the PATH changes on macOS with planted tools; bwrap was not run.
+# W2671 round 3 (upstream 97a3e32), from the Gemini port's second security
+# review: an absolute PATH entry inside the repository is still searched
+# outside the box, so the EXIT trap takes the system PATH and the prose names
+# the rest as a residual to grade by reading; and a relative TMPDIR would give
+# the trap, from /, a copy path it misses, so the command refuses one before
+# mktemp. The skill's absence row is not carried: no row kind reads the skill
+# for an absence.
 
 IFS= read -r -d '' W2671_PINS <<'W2671_PINS_END' || true
 repro	the probe drops every empty or relative PATH entry before any lookup	    q="${PATH:-}:" x=; while [ -n "$q" ]; do e="${q%%:*}"; q="${q#*:}"; case "$e" in /*) x="${x:+$x:}$e" ;; esac; done; [ -n "$x" ] && PATH="$x" || { echo 'PATH holds no absolute entry: grading by reading'; exit 1; }
-repro	the trap leaves the copy for / before it looks anything up	trap 'trap "" PIPE; cd /; [ -z "$g" ] ||
+repro	the trap leaves the copy for / before it looks anything up	trap 'trap "" PIPE; cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ] ||
 absent	the trap no longer starts its lookups in the copy	trap 'trap "" PIPE; [ -z "$g" ]
 absent	no unlock outside the box, where chmod would follow a swapped-in link	find "$d" -type d -exec chmod
 absent	the block never exports a widened PATH	export PATH
@@ -1033,14 +1040,26 @@ repro	the output pipe names /bin/cat by its path	) 2>&1 | /bin/cat
 absent	no bare cat, which the caller's PATH would find from the project root	) 2>&1 | cat
 repro	the prose names the PATH clean-up and its reason	Before it looks anything up, the command drops every empty or relative entry, such as `.`, from `PATH`, and refuses to probe when no entry is left: it finds each tool it runs outside the box on `PATH`, first from the project root and then from inside the copy, where such an entry would run a file from the repository in that tool's place, outside the box.
 repro	the prose says why the pipe names /bin/cat	The pipe at its end starts before that clean-up, from the project root, so it names `/bin/cat` by its path.
-repro	the prose names the trap's move to /	When it exits, its trap moves to `/` before it looks anything up.
+repro	the prose names the trap's move to /	When it exits, its trap moves to `/` and sets `PATH` to `/usr/bin:/bin:/usr/sbin:/sbin` before it looks anything up
 repro	the prose says the unlock runs inside the box	The unlock runs inside the box, so a link that a surviving process swaps in for one of the copy's directories cannot turn it on a file outside the copy; if the box cannot start again at that point, nothing is unlocked and a locked directory can keep the copy behind.
 readme	the README says the unlock runs inside the box	the unlock runs inside the box, so a link a surviving process swaps in cannot turn it on a file outside the copy.
 readme	the README names the PATH clean-up	Before it looks anything up it drops every empty or relative entry, such as `.`, from `PATH`, and refuses when none is left
-readme	the README names the trap's move to / and /bin/cat	its exit trap moves to `/` before it looks anything up, and the pipe that carries the output back, which starts before that clean-up, names `/bin/cat` by its path.
+readme	the README names the trap's move to / and /bin/cat	Its exit trap moves to `/` and sets `PATH` to `/usr/bin:/bin:/usr/sbin:/sbin` before it looks anything up, the command refuses to probe when `TMPDIR` holds a relative path, which the trap would miss from `/`, and the pipe that carries the output back, which starts before that clean-up, names `/bin/cat` by its path.
 readme	the README names the cleanup check's lock case	a copy holding directories the snippet locked must still be removed
 readme	the README names the cleanup check's PATH case	no tool planted in the repository or the copy under the name of one the command runs may run
-essentials	the skill names the PATH clean-up	The command drops every empty or relative `PATH` entry before it looks up a tool, so a file in the repository or the copy cannot run outside the sandbox in a tool's place.
+essentials	the skill names the PATH clean-up	The command drops every empty or relative `PATH` entry before it looks up a tool, so no such entry can run a file in the repository or the copy outside the sandbox in a tool's place
+repro	the probe refuses a relative TMPDIR before mktemp	case "${TMPDIR:-/tmp}" in /*) ;; *) echo 'TMPDIR is not an absolute path: grading by reading'; exit 1 ;; esac; d="$(mktemp -d
+repro	the trap looks its tools up only in the system directories	cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z "$g" ]
+absent	the trap never looks a tool up on the caller's PATH	cd /; [ -z "$g" ]
+repro	the prose names the trap's system PATH and its cost	where `sandbox-exec` or `bwrap` is installed outside those four directories, the trap cannot start the box again to unlock the copy.
+repro	the prose names the absolute-entry residual	An absolute entry is kept even when it points into the repository
+repro	the prose says to grade by reading with a PATH entry inside the repository	when an entry of `PATH` is inside the repository, grade by reading.
+repro	the prose names the relative-TMPDIR refusal and its reason	The command also refuses to probe when `TMPDIR` holds a relative path, since `mktemp` would then name a copy relative to the project root
+readme	the README names the absolute-entry residual	An absolute entry is still searched even when it points into the repository
+readme	the README names the relative-TMPDIR refusal	the command refuses to probe when `TMPDIR` holds a relative path
+readme_absent	the README no longer says no repository file can run outside the box	so no file in the repository or the copy can run outside the box
+essentials	the skill names the absolute-entry residual	an absolute entry inside the repository is still searched
+essentials	the skill names the relative-TMPDIR refusal	the command refuses a relative `TMPDIR`
 W2671_PINS_END
 
 check_pin_rows "$W2671_PINS"
@@ -2120,8 +2139,10 @@ a shared network in the Linux box fails	the probe block is pinned line for line	
 another inherited variable in env -i fails	the probe block is pinned line for line	TMPDIR="$r" <the one test	TMPDIR="$r" SSH_AUTH_SOCK="$SSH_AUTH_SOCK" <the one test
 a home bind in the Linux box fails	the probe block is pinned line for line	--bind "$r" "$r" --unshare-all	--bind "$r" "$r" --bind "$h" "$h" --unshare-all
 a PATH that keeps its relative entries fails the block pin	the probe block is pinned line for line	[ -n "$x" ] && PATH="$x" ||	[ -n "$x" ] ||
-a trap that starts its lookups in the copy fails the block pin	the probe block is pinned line for line	trap "" PIPE; cd /; [ -z	trap "" PIPE; [ -z
+a trap that starts its lookups in the copy fails the block pin	the probe block is pinned line for line	trap "" PIPE; cd /; PATH=	trap "" PIPE; PATH=
 a bare cat at the end of the pipe fails the block pin	the probe block is pinned line for line	) 2>&1 | /bin/cat	) 2>&1 | cat
+a block without the relative-TMPDIR refusal fails the block pin	the probe block is pinned line for line	case "${TMPDIR:-/tmp}" in /*) ;; *) echo 'TMPDIR is not an absolute path: grading by reading'; exit 1 ;; esac; 	<nothing>
+a trap that searches the caller's PATH fails the block pin	the probe block is pinned line for line	cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z	cd /; [ -z
 PROBE_BREAKS_END
   break_replace_rows "$PROBE_BREAKS"
 
@@ -2172,10 +2193,12 @@ HARDEN_BREAKS_END
 a PATH line that keeps PATH unchanged fails	the probe drops every empty or relative PATH entry before any lookup	[ -n "$x" ] && PATH="$x" ||	[ -n "$x" ] ||
 a PATH line that keeps relative entries fails	the probe drops every empty or relative PATH entry before any lookup	case "$e" in /*) x=	case "$e" in *) x=
 a PATH line that runs on with no absolute entry fails	the probe drops every empty or relative PATH entry before any lookup	[ -n "$x" ] && PATH="$x" || { echo	PATH="${x:-$PATH}" || { echo
-a trap that starts its lookups in the copy fails	the trap leaves the copy for / before it looks anything up	trap "" PIPE; cd /; [ -z	trap "" PIPE; [ -z
+a trap that starts its lookups in the copy fails	the trap leaves the copy for / before it looks anything up	trap "" PIPE; cd /; PATH=	trap "" PIPE; PATH=
 a bare cat at the end of the pipe fails	the output pipe names /bin/cat by its path	) 2>&1 | /bin/cat	) 2>&1 | cat
 an unlock moved back outside the box fails	no unlock outside the box, where chmod would follow a swapped-in link	(box env -i PATH="$PATH" find "$r" -type d -exec chmod u+rwx {} \;) >/dev/null 2>&1;	find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null;
 an unlock that runs before box is defined fails	the trap unlocks only directories, inside the box	! command -v box >/dev/null 2>&1 || (box env	(box env
+a block without the relative-TMPDIR refusal fails	the probe refuses a relative TMPDIR before mktemp	case "${TMPDIR:-/tmp}" in /*) ;; *) echo 'TMPDIR is not an absolute path: grading by reading'; exit 1 ;; esac; 	<nothing>
+a trap that searches the caller's PATH fails	the trap looks its tools up only in the system directories	cd /; PATH=/usr/bin:/bin:/usr/sbin:/sbin; [ -z	cd /; [ -z
 W2671_BREAKS_END
   break_replace_rows "$W2671_BREAKS"
   mk; ed_awk "$t/$REP" '{ print } /^    p=; g=; trap / && !d { print "    export PATH=\"$PATH:.\""; d = 1 }'
