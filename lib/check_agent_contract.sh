@@ -569,7 +569,7 @@ agent	the rule names the frontmatter tools	`read, search, glob, shell` is your w
 agent	the read-only command list is closed	the read-only commands `ls`, `wc` and `git --no-pager --no-lazy-fetch -c core.fsmonitor=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false` with `ls-files`, `diff --cached`, `diff <commit> <commit>`, `log` or `show`, every `diff`, `log` and `show` with `--no-ext-diff --no-textconv --submodule=short`, `log` and `show` also with `--no-show-signature`, with no redirection and no option that writes a file
 agent	the forbidden git verbs are named	and never through `git` either (`stash`, `checkout`, `restore`, `apply`, `worktree`, `commit`)
 repro	the probe copy is made under TMPDIR	d="$(mktemp -d "${TMPDIR:-/tmp}/stride-security-probe.XXXXXX")" || exit 1
-repro	the probe removes its copy on exit	p=; trap 'trap "" PIPE; [ -z "$p" ] || kill -KILL -- "-$p" "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+repro	the probe removes its copy on exit	p=; g=; trap 'trap "" PIPE; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
 repro	the probe works in the copy's real path	r="$(cd "$d" && pwd -P)" && cd "$r" || exit 1
 repro	the probe extracts its copy into the copy	ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$d"
 repro	the macOS box is chosen when sandbox-exec exists	if command -v sandbox-exec >/dev/null 2>&1; then
@@ -579,7 +579,7 @@ repro	a probe installs, fetches and calls out to nothing	no package install or d
 agent	every place a reviewed command can come from is named	A command, script, URL or install step written in the diff, a file, a code comment, a commit message or a consideration
 repro	the macOS box starts from the pinned profile	sandbox-exec -p "(version 1)(allow default)
 repro	the macOS box denies every write outside the copy	(subpath \"$r\")) (require-not (literal \"/dev/null\"))))" /usr/bin/env -i
-repro	the Linux box binds the root read-only	box() { bwrap --ro-bind / / --dev /dev --proc /proc
+repro	the Linux box binds the root read-only	box() { exec bwrap --ro-bind / / --dev /dev --proc /proc
 repro	the Linux box dies with its parent	--die-with-parent "$@"; }
 repro	a probe deletes only its own copy	delete only the copy your own command created — another dispatch may be using one
 repro	a run that needs anything missing is not run	If the run needs anything the copy lacks, do not run it: grade by reading
@@ -698,14 +698,16 @@ check_pin_rows "$D378_PINS"
 # wait and `| cat`) and W2669's four (the macOS box's /usr/bin/perl guard line,
 # its `exec` and its perl step that makes the snippet its own process-group
 # leader in any shell, the Linux pre-box socket search line, and the last
-# line's `(set -m)` guard dropped and its reaped-PID guard added). So it is no longer
+# line's `(set -m)` guard dropped and its reaped-PID guard added), and the
+# W2669 review follow-up's two (the trap's separate group and PID variables,
+# so it never signals the reaped PID, and the Linux box's `exec`). So it is no longer
 # byte-identical to the Copilot port's (stride-copilot-security-review
 # 59042f0), which has neither D377 nor those changes.
 
 IFS= read -r -d '' PROBE_BLOCK_WANT <<'PROBE_BLOCK_END' || true
   ( [ -z "${CI:-}" ] || { echo 'CI is set: grading by reading'; exit 1; }
     d="$(mktemp -d "${TMPDIR:-/tmp}/stride-security-probe.XXXXXX")" || exit 1
-    p=; trap 'trap "" PIPE; [ -z "$p" ] || kill -KILL -- "-$p" "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+    p=; g=; trap 'trap "" PIPE; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
     git --no-lazy-fetch version >/dev/null 2>&1 || { echo 'git before 2.44: grading by reading'; exit 1; }
     git --no-lazy-fetch -c core.fsmonitor=false ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$d"
     [ -z "$(find "$d" -type l)" ] || { echo 'probe copy holds a link: grading by reading'; exit 1; }
@@ -720,9 +722,9 @@ IFS= read -r -d '' PROBE_BLOCK_WANT <<'PROBE_BLOCK_END' || true
       box() { exec sandbox-exec -p "(version 1)(allow default)(deny network*)(deny mach-lookup)(deny lsopen)(deny appleevent-send)(deny process-exec (literal \"/usr/bin/open\") (literal \"/bin/launchctl\") (literal \"/usr/bin/osascript\"))(deny process-exec (subpath \"$r\"))(deny file-map-executable (subpath \"$r\"))(deny file-read* (subpath \"$h\"))(deny job-creation)(deny signal (require-not (target same-sandbox)))(deny process-info* (require-not (target same-sandbox)))(deny mach-priv-task-port (require-not (target same-sandbox)))(deny mach-task-name (require-not (target same-sandbox)))(deny mach-task-read (require-not (target same-sandbox)))(deny mach-task-inspect (require-not (target same-sandbox)))(deny ipc-posix*)(deny ipc-sysv*)(deny file-read* (regex #\"^/dev/tty\"))(deny file-write* (require-all (require-not (subpath \"$r\")) (require-not (literal \"/dev/null\"))))" /usr/bin/env -i /usr/bin/perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV; exit 127' "$@"; }
     elif command -v bwrap >/dev/null 2>&1; then
       case "$h" in *\[*|*\**|*\?*) s=glob ;; *) s="$(timeout -k 2 10 find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /tmp -o -path /var -o -type d ! -executable \) -prune -o -samefile "$h" \( -path "$h" -prune -o -print -quit \) -o \( -type s -o -type p \) -print -quit 2>/dev/null)" ;; esac && [ -z "$s" ] || { echo 'a socket, a named pipe or a second path to HOME outside the hidden trees, or a search that did not finish: grading by reading'; exit 1; }
-      box() { bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /run --tmpfs /tmp --tmpfs /var --tmpfs "$h" --bind "$r" "$r" --unshare-all --new-session --die-with-parent "$@"; }
+      box() { exec bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /run --tmpfs /tmp --tmpfs /var --tmpfs "$h" --bind "$r" "$r" --unshare-all --new-session --die-with-parent "$@"; }
     else echo 'no probe sandbox: grading by reading'; exit 1; fi
-    box env -i PATH="$PATH" LANG=C HOME="$r" TMPDIR="$r" <the one test or snippet that settles the question> </dev/null & p=$!; wait "$p"; s=$?; kill -0 -- "-$p" 2>/dev/null || p=; echo "snippet exit: $s" ) 2>&1 | cat
+    box env -i PATH="$PATH" LANG=C HOME="$r" TMPDIR="$r" <the one test or snippet that settles the question> </dev/null & p=$! g=$!; wait "$p"; s=$? p=; kill -0 -- "-$g" 2>/dev/null || g=; echo "snippet exit: $s" ) 2>&1 | cat
 PROBE_BLOCK_END
 
 probe_block="$(awk '/^- \*\*Reproduce only in a temporary copy/ { f = 1; next }
@@ -928,18 +930,24 @@ mf_check "the README names a modified-files ls-files option only to refuse it, i
 # bash, sh and zsh outside Codex; bwrap was not run. W2669 adds the perl step,
 # the Linux pre-box socket search and the rows for the setsid residual and the
 # precedence prose; lib/check_probe_cleanup.sh runs the block under bash, sh
-# and zsh on macOS outside Codex; bwrap was not run.
+# and zsh on macOS outside Codex; bwrap was not run. Its review follow-up adds
+# the rows for the trap's separate group and PID, the Linux box's exec, the
+# search-once residual and the essentials skill's general survivor and
+# either-system SIGKILL wording; the Linux exec was not run either.
 
 IFS= read -r -d '' W2642_HARDEN_PINS <<'W2642_HARDEN_PINS_END' || true
-repro	the probe kills the snippet and unlocks the copy on exit	p=; trap 'trap "" PIPE; [ -z "$p" ] || kill -KILL -- "-$p" "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
+repro	the probe kills the snippet and unlocks the copy on exit	p=; g=; trap 'trap "" PIPE; [ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; rm -rf "$d"' EXIT; trap 'exit 1' HUP INT TERM
 repro	the macOS box runs in place of the job's shell	      box() { exec sandbox-exec -p "(version 1)
 repro	the macOS box makes the snippet its own process-group leader in any shell	/usr/bin/env -i /usr/bin/perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV; exit 127' "$@"; }
 repro	the probe refuses a Mac without /usr/bin/perl	[ -x /usr/bin/perl ] || { echo 'no /usr/bin/perl to give the snippet its own process group: grading by reading'; exit 1; }
 absent	the last line no longer depends on the shell's job control	(set -m)
 repro	the Linux box searches for a socket before it starts	      case "$h" in *\[*|*\**|*\?*) s=glob ;; *) s="$(timeout -k 2 10 find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /tmp -o -path /var -o -type d ! -executable \) -prune -o -samefile "$h" \( -path "$h" -prune -o -print -quit \) -o \( -type s -o -type p \) -print -quit 2>/dev/null)" ;; esac && [ -z "$s" ] || { echo 'a socket, a named pipe or a second path to HOME outside the hidden trees, or a search that did not finish: grading by reading'; exit 1; }
 repro	the last line starts the snippet through box with no job-control guard	    box env -i PATH="$PATH" LANG=C HOME="$r" TMPDIR="$r" <the one test
-repro	the snippet gets no input and is waited for	<the one test or snippet that settles the question> </dev/null & p=$!; wait "$p"; s=$?; kill -0 -- "-$p" 2>/dev/null || p=; echo "snippet exit: $s" ) 2>&1 | cat
-repro	the trap signals the reaped PID only while its group lives	wait "$p"; s=$?; kill -0 -- "-$p" 2>/dev/null || p=; echo
+repro	the snippet gets no input and is waited for	<the one test or snippet that settles the question> </dev/null & p=$! g=$!; wait "$p"; s=$? p=; kill -0 -- "-$g" 2>/dev/null || g=; echo "snippet exit: $s" ) 2>&1 | cat
+repro	the trap never signals the reaped PID	wait "$p"; s=$? p=; kill -0
+repro	the trap signals the group only while it has a member	kill -0 -- "-$g" 2>/dev/null || g=; echo
+absent	the trap no longer sends one kill to the group and the PID	kill -KILL -- "-$p" "$p"
+repro	the Linux box runs in place of the job's shell	      box() { exec bwrap --ro-bind / /
 repro	the Linux box hides /var	--tmpfs /tmp --tmpfs /var --tmpfs "$h"
 absent	the Linux box no longer hides only /var/tmp	--tmpfs /var/tmp
 absent	the cleanup-only trap is gone	trap 'rm -rf "$d"' EXIT
@@ -949,9 +957,12 @@ repro	the prose says perl gives the snippet its own group in any shell	On macOS 
 repro	the prose says what can outlive the command	On macOS a process that leaves that group, as one that calls `setsid()` does, can outlive the command: the command signals only the group it started, never a process by name, and nothing proves it started a process that has left.
 repro	the prose says why the setsid residual is accepted	Such a process stays in the box, which every process the snippet starts inherits, so it still has no network access, no read under your home directory, no signal to a process outside the box and no write outside the copy's directory, which it can create again once the command has removed it; while it holds the command's output open, the command does not return.
 repro	the prose states the precedence	Where a check cannot finish, refusing to probe wins over probing, and killing only what the command can prove it started wins over complete cleanup.
-repro	the prose says the reaped PID is signalled only while its group lives	Once it has waited for the snippet, it signals the snippet's own process ID only if the snippet's process group still had a member a moment before, because the system never hands out a process ID that is still in use as a group ID.
+repro	the prose says the reaped PID is never signalled	Once it has waited for the snippet, it no longer signals the snippet's own process ID, which the system may then hand out again, and it signals the snippet's process group only if that group still had a member a moment before, because the system never hands out a process ID that is still in use as a group ID.
+repro	the prose says the Linux box runs in place of the job's shell	On Linux, as on macOS, the box runs in place of the job's shell, so the command's kill reaches `bwrap` itself rather than a shell above it.
 repro	the prose names the SIGKILL residual	A command killed with `SIGKILL`, which no trap can catch, kills nothing and removes nothing, so the snippet and what it started can keep running inside the box until they end on their own, and the copy stays behind.
+repro	the prose names the search-once residual	The search looks only once, before the box starts, so a socket, a named pipe or a mount that appears on the host after it can be reached from the box.
 repro	the prose names the home bind-mount residual	The search does not see a bind mount, at a path outside your home directory, of a directory inside it, such as `~/site` mounted at `/srv/site`, so on a host with one the snippet can read what that mount exposes.
+readme	the README names the search-once residual	The search also looks only once, before the box starts, so a socket, a named pipe or a mount that appears on the host after it can be reached from the box.
 readme	the README names the home bind-mount residual	On Linux the search does not see a bind mount, at a path outside your home directory, of a directory inside it, such as `~/site` mounted at `/srv/site`, so on a host with one the snippet can read what that mount exposes.
 readme	the README names the SIGKILL residual	A command killed with `SIGKILL`, which no trap can catch, kills nothing and removes nothing, so the snippet and what it started can keep running inside the box until they end on their own.
 absent	the prose no longer says zsh lets the snippet outlive the command	such as `zsh` without a terminal, the snippet and anything it started can outlive the command
@@ -970,13 +981,14 @@ readme	the README says the Linux socket search refuses	a search of the rest of t
 readme_absent	the README no longer concedes a reachable socket elsewhere	one elsewhere still is
 readme_absent	the README no longer names only /var/tmp	`/var/tmp`
 essentials	the skill states the Linux socket limit	(on Linux, the Unix sockets under `/run`, `/tmp`, `/var` and your home directory, and it runs nothing when a search finds a socket, a named pipe or a second path to your home directory anywhere else, or cannot finish,
-essentials	the skill names the home bind-mount residual	though a bind mount elsewhere of a directory inside your home directory stays readable)
-essentials	the skill names the setsid residual	(on macOS a process that calls `setsid()` leaves the snippet's process group and can outlive the command, still inside the sandbox,
-essentials	the skill names the SIGKILL residual	and a command killed with `SIGKILL` ends nothing and leaves the copy behind);
+essentials	the skill names the home bind-mount residual	though a bind mount elsewhere of a directory inside your home directory stays readable,
+essentials	the skill names the search-once residual	and the search runs only once, before the box starts)
+essentials	the skill names the setsid residual	(on macOS a process that leaves the snippet's process group, such as one that calls `setsid()` or `setpgid()`, can outlive the command, still inside the sandbox;
+essentials	the skill names the SIGKILL residual on either system	on either system a command killed with `SIGKILL` runs no cleanup, so the snippet can keep running and the copy stays behind);
 essentials	the skill says the copy is removed on exit	and removes the copy when that command exits, after ending the snippet
 repro	the macOS box refuses the terminal devices	(deny file-read* (regex #\"^/dev/tty\"))
 repro	the probe output goes through a pipe	echo "snippet exit: $s" ) 2>&1 | cat
-repro	the exit trap ignores SIGPIPE	trap 'trap "" PIPE; [ -z "$p" ]
+repro	the exit trap ignores SIGPIPE	trap 'trap "" PIPE; [ -z "$g" ]
 repro	the trap unlocks only directories	find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null;
 absent	the trap runs no recursive chmod	chmod -R
 repro	the prose says the snippet has no terminal	so a snippet cannot push input into the terminal of the shell that runs the command
@@ -2087,15 +2099,19 @@ a socket search that skips /nix fails	the Linux box searches for a socket before
 a socket search that prunes every alias of home fails	the Linux box searches for a socket before it starts	-samefile "$h" \( -path "$h" -prune -o -print -quit \)	-samefile "$h" -prune
 a socket search that ignores named pipes fails	the Linux box searches for a socket before it starts	\( -type s -o -type p \) -print -quit	-type s -print -quit
 a home holding a pattern character searched anyway fails	the Linux box searches for a socket before it starts	s=glob ;;	s= ;;
-a trap that kills nothing fails	the probe kills the snippet and unlocks the copy on exit	[ -z "$p" ] || kill -KILL -- "-$p" "$p" 2>/dev/null; 	<nothing>
-a trap that kills only the group fails	the probe kills the snippet and unlocks the copy on exit	kill -KILL -- "-$p" "$p"	kill -KILL -- "-$p"
+a trap that kills nothing fails	the probe kills the snippet and unlocks the copy on exit	[ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null; 	<nothing>
+a trap that kills only the group fails	the probe kills the snippet and unlocks the copy on exit	[ -z "$p" ] || kill -KILL "$p" 2>/dev/null; 	<nothing>
+a trap that kills only the PID fails	the probe kills the snippet and unlocks the copy on exit	[ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; 	<nothing>
+one kill for the group and the PID back in the trap fails	the trap no longer sends one kill to the group and the PID	[ -z "$g" ] || kill -KILL -- "-$g" 2>/dev/null; [ -z "$p" ] || kill -KILL "$p" 2>/dev/null;	[ -z "$p" ] || kill -KILL -- "-$p" "$p" 2>/dev/null;
 a trap that skips the unlock fails	the probe kills the snippet and unlocks the copy on exit	find "$d" -type d -exec chmod u+rwx {} \; 2>/dev/null; 	<nothing>
 a recursive chmod back in the trap fails	the trap unlocks only directories	find "$d" -type d -exec chmod u+rwx {} \;	chmod -R u+rwx "$d"
 a trap that can die on SIGPIPE fails	the exit trap ignores SIGPIPE	trap "" PIPE; 	<nothing>
 dropping the terminal denial fails	the macOS box refuses the terminal devices	(deny file-read* (regex #\"^/dev/tty\"))	<nothing>
 a terminal-facing snippet fails	the probe output goes through a pipe	) 2>&1 | cat	)
-a foreground snippet fails	the snippet gets no input and is waited for	 </dev/null & p=$!; wait "$p"; s=$?; kill -0 -- "-$p" 2>/dev/null || p=; echo "snippet exit: $s" )	 )
-a trap that may signal a reaped PID fails	the trap signals the reaped PID only while its group lives	s=$?; kill -0 -- "-$p" 2>/dev/null || p=; echo	s=$?; echo
+a foreground snippet fails	the snippet gets no input and is waited for	 </dev/null & p=$! g=$!; wait "$p"; s=$? p=; kill -0 -- "-$g" 2>/dev/null || g=; echo "snippet exit: $s" )	 )
+a trap that may signal a reaped PID fails	the trap never signals the reaped PID	s=$? p=; kill -0	s=$?; kill -0
+a trap that may signal an emptied group fails	the trap signals the group only while it has a member	 2>/dev/null || g=; echo	 2>/dev/null; echo
+a Linux box that forks under the job shell fails	the Linux box runs in place of the job's shell	box() { exec bwrap	box() { bwrap
 a snippet reading the caller input fails	the snippet gets no input and is waited for	 </dev/null & p=$!	 & p=$!
 the copy step without the fsmonitor override fails	the probe copy step neutralises core.fsmonitor and lazy fetch	git --no-lazy-fetch -c core.fsmonitor=false ls-files -z	git --no-lazy-fetch ls-files -z
 the copy step without --no-lazy-fetch fails	the probe copy step neutralises core.fsmonitor and lazy fetch	git --no-lazy-fetch -c core.fsmonitor=false ls-files -z	git -c core.fsmonitor=false ls-files -z
@@ -2106,7 +2122,7 @@ a %G placeholder allowed fails	the flags are never dropped or undone	or put a `%
 the Linux box back to /var/tmp fails	the Linux box hides /var	--tmpfs /var --tmpfs "$h"	--tmpfs /var/tmp --tmpfs "$h"
 HARDEN_BREAKS_END
   break_replace_rows "$HARDEN_BREAKS"
-  mk; ed_awk "$t/$REP" '{ print } /^    p=; trap / && !d { print "    export PATH=\"$PATH:.\""; d = 1 }'
+  mk; ed_awk "$t/$REP" '{ print } /^    p=; g=; trap / && !d { print "    export PATH=\"$PATH:.\""; d = 1 }'
   if grep -qF 'export PATH="$PATH:."' "$t/$REP"; then
     expect "a line added inside the probe subshell fails" 1 "FAIL: the probe block is pinned line for line --" "$t"
   else

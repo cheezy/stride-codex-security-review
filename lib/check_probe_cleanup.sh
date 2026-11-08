@@ -9,7 +9,9 @@
 # terminal, with BASH_ENV and ENV unset.
 #
 #   - Controls first. A sleep this script starts is seen alive, then gone once
-#     killed by its recorded PID, so a "gone" result proves something; zsh with
+#     killed by its recorded PID, so a "gone" result proves something; a
+#     recorded sleep whose start time no longer matches the recorded one is not
+#     signalled, and is once it matches again; zsh with
 #     no terminal is shown unable to turn on job control, so the zsh case runs
 #     the shell the block must not depend on; and the setsid snippet's probes,
 #     run outside the box, are all allowed, so a "denied" inside it proves
@@ -51,7 +53,9 @@
 # port 9, and inside the box it is refused. Writes only under a mktemp -d
 # directory under /tmp and, at most, the probe copies the block itself makes
 # under $TMPDIR (else /tmp), removed on exit. Signals only PIDs it recorded and
-# has not yet seen gone, never a process by name. CI is unset for the block's
+# has not yet seen gone, and only while a PID is alive and its start time
+# (ps -o lstart) still equals the one recorded with it, so a PID the system
+# handed out again is never signalled; never a process by name. CI is unset for the block's
 # runs: the snippets are this script's own, never reviewed code.
 #
 # Usage:
@@ -86,13 +90,16 @@ T="$(mktemp -d /tmp/stride-probe-cleanup.XXXXXX)" || { echo "FAIL: could not cre
 PIDS=
 cleanup() {
   local p
-  for p in $PIDS; do kill -KILL "$p" 2>/dev/null; done
+  for p in $PIDS; do kill_recorded "$p"; done
   rm -rf "$T"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-record() { PIDS="$PIDS $1"; }
+record() { # $1=pid -- noted with its start time, so a reused PID is never signalled
+  PIDS="$PIDS $1"
+  ps -o lstart= -p "$1" > "$T/start.$1" 2>/dev/null
+}
 forget() { # $1=pid -- seen gone, so never signalled again
   local p kept=
   for p in $PIDS; do [ "$p" = "$1" ] || kept="$kept $p"; done
@@ -103,6 +110,14 @@ alive() { # $1=pid -- true while it runs (a zombie counts as gone)
   s="$(ps -o stat= -p "$1" 2>/dev/null)" || return 1
   case "$s" in *Z*|'') return 1 ;; esac
   return 0
+}
+same_start() { # $1=pid -- true while it is the process record() saw
+  local now
+  now="$(ps -o lstart= -p "$1" 2>/dev/null)" || return 1
+  [ -n "$now" ] && [ "$now" = "$(cat "$T/start.$1" 2>/dev/null)" ]
+}
+kill_recorded() { # $1=pid -- SIGKILL it only while it is alive and still the process recorded
+  alive "$1" && same_start "$1" && kill -KILL "$1" 2>/dev/null
 }
 gone_within() { # $1=pid -- true once it has gone, polling for up to 3 s
   local i=0
@@ -149,10 +164,27 @@ flat() { tr '\n' ' ' < "$T/out"; }
 
 # --- controls -----------------------------------------------------------------
 sleep 60 </dev/null >/dev/null 2>&1 & c=$!; record "$c"
-if alive "$c" && { kill -KILL "$c"; wait "$c"; } 2>/dev/null; gone_within "$c"; then
+if alive "$c" && { kill_recorded "$c" && wait "$c"; } 2>/dev/null; gone_within "$c"; then
   echo "ok: control: a recorded sleep is seen alive, then gone once killed"
 else
   echo "FAIL: control: a recorded sleep is seen alive, then gone once killed"; fail=1
+fi
+# A PID whose start time no longer matches stands for one the system handed out
+# again: it must not be signalled. The EXIT cleanup ends this sleep if the
+# second half fails, since its start file then matches again.
+sleep 60 </dev/null >/dev/null 2>&1 & c=$!; record "$c"
+echo 'not its start time' > "$T/start.$c"
+kill_recorded "$c"; sleep 0.2
+if alive "$c"; then
+  echo "ok: control: a recorded PID whose start time no longer matches is not signalled"
+else
+  echo "FAIL: control: a recorded PID whose start time no longer matches is not signalled"; fail=1
+fi
+ps -o lstart= -p "$c" > "$T/start.$c" 2>/dev/null
+if { kill_recorded "$c" && wait "$c"; } 2>/dev/null; gone_within "$c"; then
+  echo "ok: control: the same PID is signalled once its start time matches again"
+else
+  echo "FAIL: control: the same PID is signalled once its start time matches again"; fail=1
 fi
 SHELLS="bash sh"
 if command -v zsh >/dev/null 2>&1; then
@@ -236,7 +268,7 @@ else
   if [ -n "$s" ] && gone_within "$s"; then
     echo "ok: setsid: the survivor ended on its own, and this script holds no process"
   elif [ -n "$s" ]; then
-    kill -KILL "$s" 2>/dev/null; forget "$s"
+    kill_recorded "$s"; forget "$s"
     echo "FAIL: setsid: the survivor did not end on its own; killed PID $s"; fail=1
   fi
 fi
